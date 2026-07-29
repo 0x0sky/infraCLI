@@ -53,6 +53,8 @@ infraCLI · laptop ─┐
 infraCLI · vps-01 ─┘
 ```
 
+A persistent installation identity is not required for this many-to-one authorization flow. It will be introduced together with explicit device listing and per-device revocation rather than added as unused identity state.
+
 The deep link contains only a short-lived pairing secret. It never contains the resulting access token or the CLI verifier. Non-local HTTP endpoints are rejected; production authorization requires HTTPS.
 
 Credentials are written atomically to `${XDG_CONFIG_HOME}/infra/credentials.json` or `~/.config/infra/credentials.json`. On Unix, the directory is restricted to mode `0700` and the credential file to `0600`. Set `INFRA_CREDENTIALS_FILE` to use another protected location.
