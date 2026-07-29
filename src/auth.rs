@@ -196,9 +196,9 @@ fn normalize_endpoint(value: &str) -> Result<String> {
 fn validate_source(value: &str) -> Result<()> {
     if value.is_empty()
         || value.len() > 64
-        || !value
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'))
+        || !value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
     {
         bail!("source must contain 1-64 ASCII letters, digits, dots, dashes, or underscores");
     }
