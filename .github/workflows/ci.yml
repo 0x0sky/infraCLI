@@ -31,24 +31,30 @@ jobs:
 
           path = Path("src/agent.rs")
           text = path.read_text()
-          if "    output: &'a str," not in text:
-              old = '''struct EventRequest<'a> {
+
+          declaration = '''struct EventRequest<'a> {
               kind: &'a str,'''
-              new = '''struct EventRequest<'a> {
+          if declaration not in text:
+              raise SystemExit("EventRequest declaration not found")
+          text = text.replace(
+              declaration,
+              '''struct EventRequest<'a> {
               output: &'a str,
-              kind: &'a str,'''
-              if old not in text:
-                  raise SystemExit("EventRequest declaration not found")
-              text = text.replace(old, new, 1)
-          if "        output: &output.id," not in text:
-              old = '''    let request = EventRequest {
+              kind: &'a str,''',
+              1,
+          )
+
+          construction = '''    let request = EventRequest {
               kind,'''
-              new = '''    let request = EventRequest {
+          if construction not in text:
+              raise SystemExit("EventRequest construction not found")
+          text = text.replace(
+              construction,
+              '''    let request = EventRequest {
               output: &output.id,
-              kind,'''
-              if old not in text:
-                  raise SystemExit("EventRequest construction not found")
-              text = text.replace(old, new, 1)
+              kind,''',
+              1,
+          )
           path.write_text(text)
 
           readme = Path("README.md")
@@ -63,15 +69,14 @@ jobs:
           )
           readme.write_text(doc)
           PY
+      - run: cargo fmt
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test --all-features
+      - run: docker build -f Dockerfile.agent -t infra-agent:output-identity .
       - name: Commit output identity
         run: |
           set -Eeuo pipefail
-          if [[ -z "$(git status --porcelain -- src/agent.rs README.md)" ]]; then
-            exit 0
-          fi
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add src/agent.rs README.md
