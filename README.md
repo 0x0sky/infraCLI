@@ -129,7 +129,7 @@ infrabot {
 }
 ```
 
-infraCLI preserves trailing application-owned blocks when reading, rendering, or rewriting an existing `.infra`. It does not interpret their fields. This keeps the core runtime-independent and prevents Telegram-specific configuration from leaking into infraCLI's domain model.
+infraCLI preserves trailing application-owned blocks when reading and rendering `.infra`. When `infra conf` rewrites an existing file, it carries those blocks forward instead of interpreting or discarding them. This keeps the core runtime-independent and prevents Telegram-specific configuration from leaking into infraCLI's domain model.
 
 The `environment` field is passed to Docker as `--env-file`. Secrets therefore remain outside `.infra`; application blocks should reference them through their own environment contract.
 
