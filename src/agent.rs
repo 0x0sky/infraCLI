@@ -219,6 +219,12 @@ fn poll_once(client: &Client, config: &AgentConfig, previous: &AgentState) -> Re
             .as_ref()
             .or(before.as_ref())
             .context("transition has no state")?;
+        let input_fields = config
+            .inputs
+            .iter()
+            .find(|input| input.id == observed.input)
+            .map(|input| &input.fields)
+            .context("transition input is not configured")?;
         send_event(
             client,
             &config.output,
@@ -226,7 +232,7 @@ fn poll_once(client: &Client, config: &AgentConfig, previous: &AgentState) -> Re
             &kind,
             before.as_ref(),
             after.as_ref(),
-            observed,
+            input_fields,
         )?;
     }
 
@@ -343,13 +349,20 @@ fn send_event(
     kind: &str,
     before: Option<&ObservedContainer>,
     after: Option<&ObservedContainer>,
-    observed: &ObservedContainer,
+    input_fields: &BTreeSet<String>,
 ) -> Result<()> {
+    let observed = after.or(before).context("transition has no state")?;
     let previous_status = before
         .map(|value| value.status.as_str())
         .unwrap_or("absent");
     let current_status = after.map(|value| value.status.as_str()).unwrap_or("absent");
-    let available = event_fields(kind, previous_status, current_status, observed);
+    let available = event_fields(
+        kind,
+        previous_status,
+        current_status,
+        observed,
+        input_fields,
+    );
     let fields = output
         .fields
         .iter()
@@ -396,8 +409,9 @@ fn event_fields(
     previous_status: &str,
     current_status: &str,
     observed: &ObservedContainer,
+    input_fields: &BTreeSet<String>,
 ) -> BTreeMap<String, String> {
-    BTreeMap::from([
+    let mut fields = BTreeMap::from([
         ("kind".to_owned(), kind.to_owned()),
         ("input".to_owned(), observed.input.clone()),
         ("docker_address".to_owned(), observed.docker_address.clone()),
@@ -410,7 +424,12 @@ fn event_fields(
         ("health".to_owned(), observed.health.clone()),
         ("previous_status".to_owned(), previous_status.to_owned()),
         ("status".to_owned(), current_status.to_owned()),
-    ])
+    ]);
+    fields.retain(|name, _| {
+        matches!(name.as_str(), "kind" | "previous_status" | "status")
+            || input_fields.contains(name)
+    });
+    fields
 }
 
 fn health_from_status(status: &str) -> String {
@@ -852,7 +871,7 @@ fn named_block(line: &str, kind: &str) -> Option<String> {
     (rest[end + 1..].trim() == "{").then(|| rest[..end].to_owned())
 }
 
-fn assignment<'a>(line_number: usize, line: &'a str) -> Result<(&'a str, &'a str)> {
+fn assignment(line_number: usize, line: &str) -> Result<(&str, &str)> {
     let (key, value) = line
         .split_once('=')
         .with_context(|| format!("line {line_number}: expected assignment"))?;
