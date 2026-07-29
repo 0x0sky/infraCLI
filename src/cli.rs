@@ -174,14 +174,9 @@ mod tests {
 
     #[test]
     fn parses_agent_command() {
-        let cli = Cli::try_parse_from([
-            "infra",
-            "agent",
-            "--config",
-            "/etc/infra/.infra",
-            "--once",
-        ])
-        .unwrap();
+        let cli =
+            Cli::try_parse_from(["infra", "agent", "--config", "/etc/infra/.infra", "--once"])
+                .unwrap();
         let Some(Command::Agent(args)) = cli.command else {
             panic!("expected agent command");
         };

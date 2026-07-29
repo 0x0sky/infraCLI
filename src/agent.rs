@@ -160,8 +160,12 @@ struct EventRequest<'a> {
 pub fn run_agent(options: AgentOptions) -> Result<()> {
     let input = fs::read_to_string(&options.config)
         .with_context(|| format!("read agent configuration from {}", options.config.display()))?;
-    let config = parse_document(&input, &|name| env::var(name).ok())
-        .with_context(|| format!("parse agent configuration from {}", options.config.display()))?;
+    let config = parse_document(&input, &|name| env::var(name).ok()).with_context(|| {
+        format!(
+            "parse agent configuration from {}",
+            options.config.display()
+        )
+    })?;
     let client = Client::builder()
         .timeout(REQUEST_TIMEOUT)
         .user_agent(concat!("infra-agent/", env!("CARGO_PKG_VERSION")))
@@ -196,8 +200,13 @@ pub fn run_agent(options: AgentOptions) -> Result<()> {
 fn poll_once(client: &Client, config: &AgentConfig, previous: &AgentState) -> Result<AgentState> {
     let current = collect_snapshot(client, &config.inputs)?;
     if previous.containers.is_empty() {
-        eprintln!("infra agent baseline captured: {} container(s)", current.len());
-        return Ok(AgentState { containers: current });
+        eprintln!(
+            "infra agent baseline captured: {} container(s)",
+            current.len()
+        );
+        return Ok(AgentState {
+            containers: current,
+        });
     }
 
     let credential = read_credential(&config.output)?;
@@ -206,7 +215,10 @@ fn poll_once(client: &Client, config: &AgentConfig, previous: &AgentState) -> Re
         if !config.output.events.contains(&kind) {
             continue;
         }
-        let observed = after.as_ref().or(before.as_ref()).context("transition has no state")?;
+        let observed = after
+            .as_ref()
+            .or(before.as_ref())
+            .context("transition has no state")?;
         send_event(
             client,
             &config.output,
@@ -218,7 +230,9 @@ fn poll_once(client: &Client, config: &AgentConfig, previous: &AgentState) -> Re
         )?;
     }
 
-    Ok(AgentState { containers: current })
+    Ok(AgentState {
+        containers: current,
+    })
 }
 
 fn collect_snapshot(
@@ -331,13 +345,19 @@ fn send_event(
     after: Option<&ObservedContainer>,
     observed: &ObservedContainer,
 ) -> Result<()> {
-    let previous_status = before.map(|value| value.status.as_str()).unwrap_or("absent");
+    let previous_status = before
+        .map(|value| value.status.as_str())
+        .unwrap_or("absent");
     let current_status = after.map(|value| value.status.as_str()).unwrap_or("absent");
     let available = event_fields(kind, previous_status, current_status, observed);
     let fields = output
         .fields
         .iter()
-        .filter_map(|name| available.get(name).map(|value| (name.clone(), value.clone())))
+        .filter_map(|name| {
+            available
+                .get(name)
+                .map(|value| (name.clone(), value.clone()))
+        })
         .collect::<BTreeMap<_, _>>();
     let subject = if observed.service.is_empty() {
         observed.container.as_str()
@@ -358,7 +378,10 @@ fn send_event(
     };
 
     client
-        .post(format!("{}/v1/events", output.endpoint.trim_end_matches('/')))
+        .post(format!(
+            "{}/v1/events",
+            output.endpoint.trim_end_matches('/')
+        ))
         .bearer_auth(&credential.access_token)
         .json(&request)
         .send()
@@ -447,8 +470,8 @@ fn write_state(path: &Path, state: &AgentState) -> Result<()> {
     fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     let content = serde_json::to_vec_pretty(state).context("encode agent state")?;
     let temporary = parent.join(format!(".state-{}.tmp", std::process::id()));
-    let mut file = fs::File::create(&temporary)
-        .with_context(|| format!("create {}", temporary.display()))?;
+    let mut file =
+        fs::File::create(&temporary).with_context(|| format!("create {}", temporary.display()))?;
     file.write_all(&content)?;
     file.sync_all()?;
     fs::rename(&temporary, path).with_context(|| format!("replace {}", path.display()))
@@ -714,7 +737,11 @@ where
     if builder.outputs.len() != 1 {
         bail!("agent must declare exactly one output in version 1");
     }
-    let output = builder.outputs.into_iter().next().context("missing output")?;
+    let output = builder
+        .outputs
+        .into_iter()
+        .next()
+        .context("missing output")?;
     if output.driver.as_deref() != Some("infrabot") {
         bail!("output {} driver must be infrabot", output.id);
     }
@@ -765,7 +792,11 @@ fn validate_fields(name: &str, values: Vec<String>, allowed: &[&str]) -> Result<
     Ok(ordered.into_iter().collect())
 }
 
-fn validate_fields_ordered(name: &str, values: Vec<String>, allowed: &[&str]) -> Result<Vec<String>> {
+fn validate_fields_ordered(
+    name: &str,
+    values: Vec<String>,
+    allowed: &[&str],
+) -> Result<Vec<String>> {
     if values.is_empty() {
         bail!("{name} must not be empty");
     }
@@ -790,7 +821,9 @@ fn validate_private_or_https_url(name: &str, value: &str) -> Result<()> {
     if parsed.query().is_some() || parsed.fragment().is_some() {
         bail!("{name} must not contain a query or fragment");
     }
-    let host = parsed.host_str().with_context(|| format!("{name} has no host"))?;
+    let host = parsed
+        .host_str()
+        .with_context(|| format!("{name} has no host"))?;
     if parsed.scheme() == "https" {
         return Ok(());
     }
@@ -806,7 +839,9 @@ fn private_host(host: &str) -> bool {
     }
     host.parse::<IpAddr>().is_ok_and(|address| match address {
         IpAddr::V4(value) => value.is_private() || value.is_loopback() || value.is_link_local(),
-        IpAddr::V6(value) => value.is_loopback() || value.is_unique_local() || value.is_unicast_link_local(),
+        IpAddr::V6(value) => {
+            value.is_loopback() || value.is_unique_local() || value.is_unicast_link_local()
+        }
     })
 }
 
@@ -837,7 +872,10 @@ fn quoted(line_number: usize, value: &str) -> Result<String> {
 }
 
 fn value_ref(line_number: usize, value: &str) -> Result<ValueRef> {
-    if let Some(inner) = value.strip_prefix("env(\"").and_then(|v| v.strip_suffix("\")")) {
+    if let Some(inner) = value
+        .strip_prefix("env(\"")
+        .and_then(|v| v.strip_suffix("\")"))
+    {
         validate_environment_name(inner)
             .with_context(|| format!("line {line_number}: invalid environment reference"))?;
         return Ok(ValueRef::Environment(inner.to_owned()));
@@ -885,12 +923,7 @@ where
     }
 }
 
-fn resolve_or<F>(
-    value: Option<ValueRef>,
-    default: &str,
-    name: &str,
-    resolver: &F,
-) -> Result<String>
+fn resolve_or<F>(value: Option<ValueRef>, default: &str, name: &str, resolver: &F) -> Result<String>
 where
     F: Fn(&str) -> Option<String>,
 {
@@ -903,9 +936,9 @@ where
 fn validate_identifier(name: &str, value: &str) -> Result<()> {
     if value.is_empty()
         || value.len() > 64
-        || !value
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'))
+        || !value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
     {
         bail!("{name} must contain 1-64 ASCII letters, digits, dots, dashes, or underscores");
     }
@@ -914,9 +947,9 @@ fn validate_identifier(name: &str, value: &str) -> Result<()> {
 
 fn validate_environment_name(value: &str) -> Result<()> {
     if value.is_empty()
-        || !value
-            .chars()
-            .all(|character| character.is_ascii_uppercase() || character.is_ascii_digit() || character == '_')
+        || !value.chars().all(|character| {
+            character.is_ascii_uppercase() || character.is_ascii_digit() || character == '_'
+        })
     {
         bail!("environment names must contain uppercase ASCII letters, digits, or underscores");
     }
@@ -1013,8 +1046,18 @@ agent {
             project: "market".into(),
             service: "api".into(),
             image: "market:latest".into(),
-            state: if status == "healthy" { "running" } else { "exited" }.into(),
-            health: if status == "healthy" { "healthy" } else { "none" }.into(),
+            state: if status == "healthy" {
+                "running"
+            } else {
+                "exited"
+            }
+            .into(),
+            health: if status == "healthy" {
+                "healthy"
+            } else {
+                "none"
+            }
+            .into(),
             status: status.into(),
         }
     }
