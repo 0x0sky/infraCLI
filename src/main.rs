@@ -80,6 +80,7 @@ fn main() -> Result<()> {
         Some(Command::Auth(args)) => match args.provider {
             AuthProvider::Telegram(args) => authorize_telegram(TelegramAuthOptions {
                 endpoint: args.endpoint,
+                source: args.source,
                 no_open: args.no_open,
             })?,
         },
