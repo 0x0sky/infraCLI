@@ -47,7 +47,6 @@ jobs:
                       observed,
                   )?;'''
           replacement = '''            after.as_ref(),
-                      observed,
                       input_fields,
                   )?;'''
           if marker not in text:
@@ -55,17 +54,23 @@ jobs:
           text = text.replace(marker, replacement, 1)
 
           pattern = re.compile(
-              r'''(fn send_event\(.*?    observed: &ObservedContainer,\n)(\) -> Result<\(\)> \{)''',
+              r'''(fn send_event\(.*?    after: Option<&ObservedContainer>,\n)    observed: &ObservedContainer,\n\) -> Result<\(\)> \{''',
               re.S,
           )
-          text, count = pattern.subn(
-              r'''\1    input_fields: &BTreeSet<String>,
-          \2''',
-              text,
-              count=1,
-          )
+          replacement = '''\1    input_fields: &BTreeSet<String>,
+          ) -> Result<()> {'''
+          text, count = pattern.subn(replacement, text, count=1)
           if count != 1:
               raise SystemExit("send_event signature not found")
+
+          marker = ''') -> Result<()> {
+              let previous_status = before'''
+          replacement = ''') -> Result<()> {
+              let observed = after.or(before).context("transition has no state")?;
+              let previous_status = before'''
+          if marker not in text:
+              raise SystemExit("send_event body marker not found")
+          text = text.replace(marker, replacement, 1)
 
           marker = '    let available = event_fields(kind, previous_status, current_status, observed);'
           replacement = '''    let available = event_fields(
@@ -112,6 +117,12 @@ jobs:
           text, count = pattern.subn(replacement, text, count=1)
           if count != 1:
               raise SystemExit("event_fields function not found")
+
+          old = "fn assignment<'a>(line_number: usize, line: &'a str) -> Result<(&'a str, &'a str)> {"
+          new = "fn assignment(line_number: usize, line: &str) -> Result<(&str, &str)> {"
+          if old not in text:
+              raise SystemExit("assignment signature not found")
+          text = text.replace(old, new, 1)
 
           path.write_text(text)
           PY
