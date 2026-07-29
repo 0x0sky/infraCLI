@@ -84,8 +84,7 @@ impl ProjectConfig {
         if let Some(parent) = path.as_ref().parent() {
             fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
         }
-        fs::write(path.as_ref(), self.render())
-            .with_context(|| format!("write {}", path.display()))
+        fs::write(path.as_ref(), self.render()).with_context(|| format!("write {}", path.display()))
     }
 
     pub fn read(path: &ConfigPath) -> Result<Self> {
@@ -189,12 +188,7 @@ impl<R: BufRead, W: Write> Wizard<R, W> {
                 project,
                 runtime,
                 service: ServiceConfig {
-                    name: self.prompt_default(
-                        "service name",
-                        &detected.service_name,
-                        '[',
-                        ']',
-                    )?,
+                    name: self.prompt_default("service name", &detected.service_name, '[', ']')?,
                     source,
                     build_file: self.prompt_default(
                         "build file",
@@ -244,10 +238,8 @@ impl<R: BufRead, W: Write> Wizard<R, W> {
             .parse()?;
         config.service.health_path =
             self.prompt_default("health path", &config.service.health_path, '(', ')')?;
-        config.service.environment = self.prompt_optional_parenthesized(
-            "environment",
-            config.service.environment.as_deref(),
-        )?;
+        config.service.environment = self
+            .prompt_optional_parenthesized("environment", config.service.environment.as_deref())?;
 
         let current_output = path.display().to_string();
         let output = self.prompt_default("output", &current_output, '(', ')')?;
