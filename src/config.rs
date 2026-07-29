@@ -1,8 +1,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{
-    env,
-    fs,
+    env, fs,
     io::{self, BufRead, Write},
     path::{Path, PathBuf},
 };
@@ -64,7 +63,7 @@ impl ProjectConfig {
             .service
             .environment
             .as_deref()
-            .map(|value| format!("    environment = \"{value}\"\n"))
+            .map(|value| format!("        environment = \"{value}\"\n"))
             .unwrap_or_default();
 
         format!(
@@ -158,7 +157,10 @@ pub struct Wizard<R, W> {
 impl Wizard<io::StdinLock<'static>, io::Stdout> {
     pub fn stdio() -> Self {
         let stdin = Box::leak(Box::new(io::stdin()));
-        Self { reader: stdin.lock(), writer: io::stdout() }
+        Self {
+            reader: stdin.lock(),
+            writer: io::stdout(),
+        }
     }
 }
 
@@ -169,14 +171,15 @@ impl<R: BufRead, W: Write> Wizard<R, W> {
 
     pub fn run(mut self, path: &ConfigPath) -> Result<ProjectConfig> {
         let cwd = env::current_dir()?;
-        let project = cwd.file_name().and_then(|v| v.to_str()).unwrap_or("app");
+        let project_default = cwd.file_name().and_then(|v| v.to_str()).unwrap_or("app");
 
-        let project = self.prompt_default("project name", project, '[', ']')?;
+        let project = self.prompt_default("project name", project_default, '[', ']')?;
         let runtime = self.prompt_default("runtime", "docker", '[', ']')?;
         let source = self.prompt_default("service source", ".", '[', ']')?;
 
-        let auto_fill = self.prompt_yes_no("use detected values for the remaining fields?", true)?;
-        let detected = DetectedValues::from_source(&source, path);
+        let auto_fill =
+            self.prompt_yes_no("use detected values for the remaining fields?", true)?;
+        let detected = DetectedValues::from_source(&source);
 
         let mut config = if auto_fill {
             detected.into_config(project, runtime, source)
@@ -186,19 +189,37 @@ impl<R: BufRead, W: Write> Wizard<R, W> {
                 project,
                 runtime,
                 service: ServiceConfig {
-                    name: self.prompt_default("service name", &detected.service_name, '[', ']')?,
+                    name: self.prompt_default(
+                        "service name",
+                        &detected.service_name,
+                        '[',
+                        ']',
+                    )?,
                     source,
-                    build_file: self.prompt_default("build file", &detected.build_file, '[', ']')?,
-                    port: self.prompt_default("port", &detected.port.to_string(), '[', ']')?.parse()?,
-                    health_path: self.prompt_default("health path", &detected.health_path, '[', ']')?,
-                    environment: self.prompt_optional("environment", detected.environment.as_deref())?,
+                    build_file: self.prompt_default(
+                        "build file",
+                        &detected.build_file,
+                        '[',
+                        ']',
+                    )?,
+                    port: self
+                        .prompt_default("port", &detected.port.to_string(), '[', ']')?
+                        .parse()?,
+                    health_path: self.prompt_default(
+                        "health path",
+                        &detected.health_path,
+                        '[',
+                        ']',
+                    )?,
+                    environment: self
+                        .prompt_optional("environment", detected.environment.as_deref())?,
                 },
             }
         };
 
         loop {
             self.summary(&config, path)?;
-            let answer = self.prompt_raw("write configuration? [y/e/n]: ")?;
+            let answer = self.prompt_choice("write configuration? [y/e/n]: ")?;
             match answer.as_str() {
                 "" | "y" | "yes" => return Ok(config),
                 "n" | "no" => anyhow::bail!("configuration not written"),
@@ -209,17 +230,31 @@ impl<R: BufRead, W: Write> Wizard<R, W> {
     }
 
     fn edit_auto_fields(&mut self, config: &mut ProjectConfig, path: &ConfigPath) -> Result<()> {
-        config.service.build_file = self.prompt_default("build file", &config.service.build_file, '(', ')')?;
+        config.service.build_file =
+            self.prompt_default("build file", &config.service.build_file, '(', ')')?;
+
         if !self.prompt_yes_no("edit remaining fields?", false)? {
             return Ok(());
         }
-        config.service.name = self.prompt_default("service name", &config.service.name, '(', ')')?;
-        config.service.port = self.prompt_default("port", &config.service.port.to_string(), '(', ')')?.parse()?;
-        config.service.health_path = self.prompt_default("health path", &config.service.health_path, '(', ')')?;
-        config.service.environment = self.prompt_optional_parenthesized("environment", config.service.environment.as_deref())?;
-        let output = self.prompt_default("output", &path.display().to_string(), '(', ')')?;
-        if output != path.display().to_string() {
-            anyhow::bail!("output path editing is not supported after wizard start; run infra conf <path>");
+
+        config.service.name =
+            self.prompt_default("service name", &config.service.name, '(', ')')?;
+        config.service.port = self
+            .prompt_default("port", &config.service.port.to_string(), '(', ')')?
+            .parse()?;
+        config.service.health_path =
+            self.prompt_default("health path", &config.service.health_path, '(', ')')?;
+        config.service.environment = self.prompt_optional_parenthesized(
+            "environment",
+            config.service.environment.as_deref(),
+        )?;
+
+        let current_output = path.display().to_string();
+        let output = self.prompt_default("output", &current_output, '(', ')')?;
+        if output != current_output {
+            anyhow::bail!(
+                "output path editing is not supported after wizard start; run infra conf <path>"
+            );
         }
         Ok(())
     }
@@ -233,32 +268,47 @@ impl<R: BufRead, W: Write> Wizard<R, W> {
         writeln!(self.writer, "build        {}", config.service.build_file)?;
         writeln!(self.writer, "port         {}", config.service.port)?;
         writeln!(self.writer, "health       {}", config.service.health_path)?;
-        writeln!(self.writer, "environment  {}", config.service.environment.as_deref().unwrap_or("none"))?;
+        writeln!(
+            self.writer,
+            "environment  {}",
+            config.service.environment.as_deref().unwrap_or("none")
+        )?;
         writeln!(self.writer, "output       {}\n", path.display())?;
         Ok(())
     }
 
-    fn prompt_default(&mut self, label: &str, default: &str, open: char, close: char) -> Result<String> {
-        let value = self.prompt_raw(&format!("{label} {open}{default}{close}: "))?;
-        Ok(if value.is_empty() { default.to_owned() } else { value })
+    fn prompt_default(
+        &mut self,
+        label: &str,
+        default: &str,
+        open: char,
+        close: char,
+    ) -> Result<String> {
+        let value = self.prompt_value(&format!("{label} {open}{default}{close}: "))?;
+        Ok(if value.is_empty() {
+            default.to_owned()
+        } else {
+            value
+        })
     }
 
     fn prompt_optional(&mut self, label: &str, default: Option<&str>) -> Result<Option<String>> {
-        let default = default.unwrap_or("none");
-        let value = self.prompt_default(label, default, '[', ']')?;
-        Ok((value != "none").then_some(value))
+        let value = self.prompt_default(label, default.unwrap_or("none"), '[', ']')?;
+        Ok((!value.eq_ignore_ascii_case("none")).then_some(value))
     }
 
-    fn prompt_optional_parenthesized(&mut self, label: &str, default: Option<&str>) -> Result<Option<String>> {
-        let default = default.unwrap_or("none");
-        let value = self.prompt_default(label, default, '(', ')')?;
-        Ok((value != "none").then_some(value))
+    fn prompt_optional_parenthesized(
+        &mut self,
+        label: &str,
+        default: Option<&str>,
+    ) -> Result<Option<String>> {
+        let value = self.prompt_default(label, default.unwrap_or("none"), '(', ')')?;
+        Ok((!value.eq_ignore_ascii_case("none")).then_some(value))
     }
 
     fn prompt_yes_no(&mut self, label: &str, default_yes: bool) -> Result<bool> {
-        let hint = if default_yes { "[y/n]" } else { "[y/n]" };
         loop {
-            let value = self.prompt_raw(&format!("{label} {hint}: "))?;
+            let value = self.prompt_choice(&format!("{label} [y/n]: "))?;
             match value.as_str() {
                 "" => return Ok(default_yes),
                 "y" | "yes" => return Ok(true),
@@ -268,12 +318,16 @@ impl<R: BufRead, W: Write> Wizard<R, W> {
         }
     }
 
-    fn prompt_raw(&mut self, prompt: &str) -> Result<String> {
+    fn prompt_choice(&mut self, prompt: &str) -> Result<String> {
+        Ok(self.prompt_value(prompt)?.to_ascii_lowercase())
+    }
+
+    fn prompt_value(&mut self, prompt: &str) -> Result<String> {
         write!(self.writer, "{prompt}")?;
         self.writer.flush()?;
         let mut value = String::new();
         self.reader.read_line(&mut value)?;
-        Ok(value.trim().to_lowercase())
+        Ok(value.trim().to_owned())
     }
 }
 
@@ -286,7 +340,7 @@ struct DetectedValues {
 }
 
 impl DetectedValues {
-    fn from_source(source: &str, _path: &ConfigPath) -> Self {
+    fn from_source(source: &str) -> Self {
         let build_file = if Path::new(source).join("Containerfile").exists() {
             "Containerfile"
         } else {
@@ -297,7 +351,10 @@ impl DetectedValues {
             build_file: build_file.to_owned(),
             port: 8080,
             health_path: "/health".to_owned(),
-            environment: Path::new(source).join(".env").exists().then(|| ".env".to_owned()),
+            environment: Path::new(source)
+                .join(".env")
+                .exists()
+                .then(|| ".env".to_owned()),
         }
     }
 
@@ -321,15 +378,26 @@ impl DetectedValues {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
 
     #[test]
     fn directory_paths_resolve_to_dot_infra() {
-        assert_eq!(ConfigPath::resolve(Some(Path::new("/srv/app"))).unwrap().as_ref(), Path::new("/srv/app/.infra"));
+        assert_eq!(
+            ConfigPath::resolve(Some(Path::new("/srv/app")))
+                .unwrap()
+                .as_ref(),
+            Path::new("/srv/app/.infra")
+        );
     }
 
     #[test]
     fn explicit_infra_filename_is_preserved() {
-        assert_eq!(ConfigPath::resolve(Some(Path::new("prod.infra"))).unwrap().as_ref(), Path::new("prod.infra"));
+        assert_eq!(
+            ConfigPath::resolve(Some(Path::new("prod.infra")))
+                .unwrap()
+                .as_ref(),
+            Path::new("prod.infra")
+        );
     }
 
     #[test]
@@ -339,10 +407,29 @@ mod tests {
             project: "market".into(),
             runtime: "docker".into(),
             service: ServiceConfig {
-                name: "api".into(), source: ".".into(), build_file: "Dockerfile".into(),
-                port: 8080, health_path: "/health".into(), environment: Some(".env".into()),
+                name: "api".into(),
+                source: ".".into(),
+                build_file: "Dockerfile".into(),
+                port: 8080,
+                health_path: "/health".into(),
+                environment: Some(".env".into()),
             },
         };
         assert_eq!(parse_generated_config(&config.render()).unwrap(), config);
+    }
+
+    #[test]
+    fn values_preserve_case_but_choices_are_case_insensitive() {
+        let input = Cursor::new(b"Dockerfile\nY\n");
+        let output = Vec::new();
+        let mut wizard = Wizard::new(input, output);
+
+        assert_eq!(
+            wizard
+                .prompt_default("build file", "Containerfile", '(', ')')
+                .unwrap(),
+            "Dockerfile"
+        );
+        assert!(wizard.prompt_yes_no("continue?", false).unwrap());
     }
 }
