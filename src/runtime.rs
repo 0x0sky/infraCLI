@@ -47,7 +47,12 @@ impl DockerRuntime {
         let container = Self::container_name(config, service);
         let tag = Self::image_tag(config, service);
         let port = format!("{}:{}", config.service.port, config.service.port);
-        self.docker(&["run", "-d", "--name", &container, "-p", &port, &tag])
+        let mut args = vec!["run", "-d", "--name", container.as_str()];
+        if let Some(environment) = config.service.environment.as_deref() {
+            args.extend(["--env-file", environment]);
+        }
+        args.extend(["-p", port.as_str(), tag.as_str()]);
+        self.docker(&args)
     }
 }
 
