@@ -183,6 +183,20 @@ project "market" {
 
 The initial runtime model supports one service and Docker. Configuration parsing, CLI commands, runtime execution, and application extensions remain separated so additional services and runtimes can be added without changing lifecycle contracts.
 
+## planned notifications
+
+The proposed event-driven notification system is documented in [`docs/notifications.md`](docs/notifications.md).
+
+It defines runtime-neutral events, state-change delivery, deduplication, cooldowns, recovery correlation, persistent state, provider contracts, and future commands:
+
+```text
+infra notify test
+infra watch --once
+infra watch
+```
+
+These commands and the notification configuration are design contracts, not currently implemented CLI behavior.
+
 ## development
 
 ```bash
