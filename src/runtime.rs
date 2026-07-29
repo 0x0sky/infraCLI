@@ -17,11 +17,11 @@ pub trait Runtime {
 pub struct DockerRuntime;
 
 impl DockerRuntime {
-    fn ensure_service<'a>(&self, config: &'a ProjectConfig, service: &str) -> Result<&'a str> {
+    fn ensure_service(&self, config: &ProjectConfig, service: &str) -> Result<()> {
         if config.service.name != service {
             anyhow::bail!("unknown service: {service}");
         }
-        Ok(service)
+        Ok(())
     }
 
     fn docker(&self, args: &[&str]) -> Result<()> {
