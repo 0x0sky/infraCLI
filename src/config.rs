@@ -164,6 +164,7 @@ impl Wizard<io::StdinLock<'static>, io::Stdout> {
 }
 
 impl<R: BufRead, W: Write> Wizard<R, W> {
+    #[cfg(test)]
     pub fn new(reader: R, writer: W) -> Self {
         Self { reader, writer }
     }
