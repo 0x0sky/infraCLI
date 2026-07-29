@@ -20,6 +20,7 @@ infra stop [path]
 infra rm [--path <path>]
 infra rm -a|--all [--path <path>]
 infra rm <service> [--path <path>]
+infra auth telegram --endpoint <https-url> [--no-open]
 infra <service>
 infra <service> logs
 infra <service> restart
@@ -29,6 +30,26 @@ infra <service> stop
 `infra` shows project state. `infra conf` creates configuration. `infra apply` reconciles runtime state.
 
 `infra stop` stops managed containers but keeps their runtime objects.
+
+## Telegram authorization
+
+```bash
+infra auth telegram --endpoint https://<infrabot-host>
+```
+
+`INFRABOT_URL` may be used instead of `--endpoint`:
+
+```bash
+INFRABOT_URL=https://<infrabot-host> infra auth telegram
+```
+
+The command creates a five-minute one-time pairing session, opens its Telegram deep link, and waits for confirmation. The access token is returned only to the CLI instance that created the session because token exchange requires a private verifier that never leaves the device.
+
+The deep link contains only a short-lived pairing secret. It never contains the resulting access token or the CLI verifier. Non-local HTTP endpoints are rejected; production authorization requires HTTPS.
+
+Credentials are written atomically to `${XDG_CONFIG_HOME}/infra/credentials.json` or `~/.config/infra/credentials.json`. On Unix, the directory is restricted to mode `0700` and the credential file to `0600`. Set `INFRA_CREDENTIALS_FILE` to use another protected location.
+
+Use `--no-open` on a headless host. The deep link is always printed.
 
 ## lifecycle semantics
 
