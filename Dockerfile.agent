@@ -13,4 +13,5 @@ RUN mkdir -p /etc/infra /var/lib/infra \
     && chown -R 65532:65532 /var/lib/infra
 USER 65532:65532
 EXPOSE 9090
-ENTRYPOINT ["/usr/local/bin/infra", "agent", "--config", "/etc/infra/.infra"]
+ENTRYPOINT ["/usr/local/bin/infra"]
+CMD ["agent", "--config", "/etc/infra/.infra"]
