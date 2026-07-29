@@ -20,148 +20,61 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Apply Telegram output semantics
+      - name: Model output as Telegram bot
         run: |
+          set -Eeuo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
-          agent_path = Path("src/agent.rs")
-          text = agent_path.read_text()
-
-          text = text.replace("InfraBotOutput", "TelegramOutput")
-          text = text.replace('Some("infrabot")', 'Some("telegram")')
-          text = text.replace("driver must be infrabot", "driver must be telegram")
-          text = text.replace('driver = "infrabot"', 'driver = "telegram"')
-
-          old = '''        let observed = after
-              .as_ref()
-              .or(before.as_ref())
-              .context("transition has no state")?;
-          send_event(
-              client,
-              &config.output,
-              &credential,
-              &kind,
-              before.as_ref(),
-              after.as_ref(),
-              observed,
-          )?;'''
-          new = '''        let observed = after
-              .as_ref()
-              .or(before.as_ref())
-              .context("transition has no state")?;
-          let input_fields = config
-              .inputs
-              .iter()
-              .find(|input| input.id == observed.input)
-              .map(|input| &input.fields)
-              .context("transition input is not configured")?;
-          send_event(
-              client,
-              &config.output,
-              &credential,
-              &kind,
-              before.as_ref(),
-              after.as_ref(),
-              observed,
-              input_fields,
-          )?;'''
-          if old not in text:
-              raise SystemExit("transition delivery block not found")
-          text = text.replace(old, new, 1)
-
-          old = '''    observed: &ObservedContainer,
-          ) -> Result<()> {'''
-          new = '''    observed: &ObservedContainer,
-              input_fields: &BTreeSet<String>,
-          ) -> Result<()> {'''
-          if old not in text:
-              raise SystemExit("send_event signature not found")
-          text = text.replace(old, new, 1)
-
-          replacement = '''fn event_fields(
-              kind: &str,
-              previous_status: &str,
-              current_status: &str,
-              observed: &ObservedContainer,
-              input_fields: &BTreeSet<String>,
-          ) -> BTreeMap<String, String> {
-              let mut fields = BTreeMap::from([
-                  ("kind".to_owned(), kind.to_owned()),
-                  ("input".to_owned(), observed.input.clone()),
-                  ("docker_address".to_owned(), observed.docker_address.clone()),
-                  ("container".to_owned(), observed.container.clone()),
-                  ("container_id".to_owned(), observed.container_id.clone()),
-                  ("project".to_owned(), observed.project.clone()),
-                  ("service".to_owned(), observed.service.clone()),
-                  ("image".to_owned(), observed.image.clone()),
-                  ("state".to_owned(), observed.state.clone()),
-                  ("health".to_owned(), observed.health.clone()),
-                  ("previous_status".to_owned(), previous_status.to_owned()),
-                  ("status".to_owned(), current_status.to_owned()),
-              ]);
-              fields.retain(|name, _| {
-                  matches!(name.as_str(), "kind" | "previous_status" | "status")
-                      || input_fields.contains(name)
-              });
-              fields
+          agent = Path("src/agent.rs")
+          text = agent.read_text()
+          replacements = {
+              "InfraBotOutput": "TelegramOutput",
+              'Some("infrabot")': 'Some("telegram")',
+              "driver must be infrabot": "driver must be telegram",
+              'driver = "infrabot"': 'driver = "telegram"',
+              "exactly one infraBot output": "exactly one Telegram output",
           }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f"missing expected agent token: {old}")
+              text = text.replace(old, new)
+          agent.write_text(text)
 
-          fn health_from_status'''
-          text, count = re.subn(
-              r'fn event_fields\([\s\S]*?\n}\n\nfn health_from_status',
-              replacement,
-              text,
-              count=1,
-          )
-          if count != 1:
-              raise SystemExit("event_fields function not found")
-
-          old = 'let available = event_fields(kind, previous_status, current_status, observed);'
-          new = '''let available = event_fields(
-              kind,
-              previous_status,
-              current_status,
-              observed,
-              input_fields,
-          );'''
-          if old not in text:
-              raise SystemExit("event_fields call not found")
-          text = text.replace(old, new, 1)
-
-          agent_path.write_text(text)
-
-          for path_name in ["README.md", "examples/infra-agent.infra"]:
-              path = Path(path_name)
-              doc = path.read_text()
-              doc = doc.replace('driver = "infrabot"', 'driver = "telegram"')
-              path.write_text(doc)
+          for filename in ["README.md", "examples/infra-agent.infra"]:
+              path = Path(filename)
+              content = path.read_text()
+              if 'driver = "infrabot"' not in content:
+                  raise SystemExit(f"missing output driver in {filename}")
+              content = content.replace('driver = "infrabot"', 'driver = "telegram"')
+              content = content.replace(
+                  "exactly one infraBot output",
+                  "exactly one Telegram output",
+              )
+              path.write_text(content)
 
           readme = Path("README.md")
-          doc = readme.read_text()
-          doc = doc.replace(
-              "`infra agent` is a long-running adapter process intended to run in its own hardened container.",
-              "`infra agent` is a long-running monitoring process intended to run in its own hardened container.",
+          content = readme.read_text()
+          content = content.replace(
+              "`output.fields` is the projection contract sent to infraBot.",
+              "`output.fields` is the projection rendered by the named Telegram bot through infraBot.",
           )
-          doc = doc.replace(
-              "`input.fields` is the extraction contract for the Docker adapter. `output.fields` is the projection contract sent to infraBot. Version 1 supports multiple Docker inputs and exactly one infraBot output.",
-              "`input.fields` is the extraction contract for Docker observations. `output.fields` is the projection rendered by the configured Telegram bot through infraBot. The output block name is the Telegram bot username; version 1 supports multiple Docker inputs and exactly one Telegram output.",
+          content = content.replace(
+              "The output block name is an adapter ID.",
+              "The output block name is the Telegram bot username.",
           )
-          readme.write_text(doc)
+          readme.write_text(content)
           PY
+      - run: cargo fmt
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test --all-features
-      - run: docker build --file Dockerfile.agent --tag infra-agent:final .
-      - name: Commit finalized contract
+      - run: docker build --file Dockerfile.agent --tag infra-agent:telegram .
+      - name: Commit Telegram output contract
         run: |
           set -Eeuo pipefail
-          if [[ -z "$(git status --porcelain -- src README.md examples Cargo.lock)" ]]; then
-            exit 0
-          fi
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src README.md examples Cargo.lock
+          git add src/agent.rs README.md examples/infra-agent.infra
           git commit -m "Model output as Telegram bot"
           git push origin HEAD:agent/containerized-service-monitor
