@@ -1,8 +1,10 @@
+mod agent;
 mod auth;
 mod cli;
 mod config;
 mod runtime;
 
+use agent::{AgentOptions, run_agent};
 use anyhow::{Context, Result};
 use auth::{TelegramAuthOptions, authorize_telegram};
 use clap::Parser;
@@ -84,6 +86,10 @@ fn main() -> Result<()> {
                 no_open: args.no_open,
             })?,
         },
+        Some(Command::Agent(args)) => run_agent(AgentOptions {
+            config: args.config,
+            once: args.once,
+        })?,
         Some(Command::Service(parts)) => {
             let args = ServiceArgs::try_from(parts)?;
             let config = ProjectConfig::read(&ConfigPath::default())?;
