@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{
     env, fs,
@@ -45,6 +45,8 @@ pub struct ProjectConfig {
     pub project: String,
     pub runtime: String,
     pub service: ServiceConfig,
+    #[serde(default)]
+    pub extensions: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -66,7 +68,7 @@ impl ProjectConfig {
             .map(|value| format!("        environment = \"{value}\"\n"))
             .unwrap_or_default();
 
-        format!(
+        let mut rendered = format!(
             "infra {}\n\nproject \"{}\" {{\n    runtime = \"{}\"\n\n    service \"{}\" {{\n        source = \"{}\"\n        build = \"{}\"\n        expose = {}\n        health = \"{}\"\n{}    }}\n}}\n",
             self.version,
             self.project,
@@ -77,14 +79,32 @@ impl ProjectConfig {
             self.service.port,
             self.service.health_path,
             environment,
-        )
+        );
+
+        let extensions = self.extensions.trim();
+        if !extensions.is_empty() {
+            rendered.push('\n');
+            rendered.push_str(extensions);
+            rendered.push('\n');
+        }
+        rendered
     }
 
     pub fn write(&self, path: &ConfigPath) -> Result<()> {
         if let Some(parent) = path.as_ref().parent() {
             fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
         }
-        fs::write(path.as_ref(), self.render()).with_context(|| format!("write {}", path.display()))
+
+        let mut config = self.clone();
+        if config.extensions.trim().is_empty() && path.as_ref().exists() {
+            let existing = fs::read_to_string(path.as_ref())
+                .with_context(|| format!("read {} before replacement", path.display()))?;
+            let (_, extensions) = split_core_and_extensions(&existing)?;
+            config.extensions = extensions;
+        }
+
+        fs::write(path.as_ref(), config.render())
+            .with_context(|| format!("write {}", path.display()))
     }
 
     pub fn read(path: &ConfigPath) -> Result<Self> {
@@ -94,6 +114,49 @@ impl ProjectConfig {
     }
 }
 
+fn split_core_and_extensions(input: &str) -> Result<(&str, String)> {
+    let project_start = input.find("project \"").context("missing project block")?;
+    let block_start = input[project_start..]
+        .find('{')
+        .map(|offset| project_start + offset)
+        .context("project block has no opening brace")?;
+
+    let mut depth = 0_u32;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (offset, character) in input[block_start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match character {
+            '"' => in_string = true,
+            '{' => depth = depth.saturating_add(1),
+            '}' => {
+                if depth == 0 {
+                    bail!("project block has an unmatched closing brace");
+                }
+                depth -= 1;
+                if depth == 0 {
+                    let core_end = block_start + offset + character.len_utf8();
+                    return Ok((&input[..core_end], input[core_end..].trim().to_owned()));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    bail!("project block is not closed")
+}
+
 fn parse_generated_config(input: &str) -> Result<ProjectConfig> {
     fn quoted(line: &str) -> Option<String> {
         let start = line.find('"')? + 1;
@@ -101,6 +164,7 @@ fn parse_generated_config(input: &str) -> Result<ProjectConfig> {
         Some(line[start..end].to_owned())
     }
 
+    let (core, extensions) = split_core_and_extensions(input)?;
     let mut version = None;
     let mut project = None;
     let mut runtime = None;
@@ -111,7 +175,7 @@ fn parse_generated_config(input: &str) -> Result<ProjectConfig> {
     let mut health_path = None;
     let mut environment = None;
 
-    for line in input.lines().map(str::trim) {
+    for line in core.lines().map(str::trim) {
         if let Some(value) = line.strip_prefix("infra ") {
             version = Some(value.parse()?);
         } else if line.starts_with("project ") {
@@ -145,6 +209,7 @@ fn parse_generated_config(input: &str) -> Result<ProjectConfig> {
             health_path: health_path.context("missing health path")?,
             environment,
         },
+        extensions,
     })
 }
 
@@ -209,6 +274,7 @@ impl<R: BufRead, W: Write> Wizard<R, W> {
                     environment: self
                         .prompt_optional("environment", detected.environment.as_deref())?,
                 },
+                extensions: String::new(),
             }
         };
 
@@ -364,6 +430,7 @@ impl DetectedValues {
                 health_path: self.health_path,
                 environment: self.environment,
             },
+            extensions: String::new(),
         }
     }
 }
@@ -372,6 +439,23 @@ impl DetectedValues {
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    fn sample_config() -> ProjectConfig {
+        ProjectConfig {
+            version: 1,
+            project: "market".into(),
+            runtime: "docker".into(),
+            service: ServiceConfig {
+                name: "api".into(),
+                source: ".".into(),
+                build_file: "Dockerfile".into(),
+                port: 8080,
+                health_path: "/health".into(),
+                environment: Some(".env".into()),
+            },
+            extensions: String::new(),
+        }
+    }
 
     #[test]
     fn directory_paths_resolve_to_dot_infra() {
@@ -395,20 +479,33 @@ mod tests {
 
     #[test]
     fn generated_config_round_trips() {
-        let config = ProjectConfig {
-            version: 1,
-            project: "market".into(),
-            runtime: "docker".into(),
-            service: ServiceConfig {
-                name: "api".into(),
-                source: ".".into(),
-                build_file: "Dockerfile".into(),
-                port: 8080,
-                health_path: "/health".into(),
-                environment: Some(".env".into()),
-            },
-        };
+        let config = sample_config();
         assert_eq!(parse_generated_config(&config.render()).unwrap(), config);
+    }
+
+    #[test]
+    fn application_extensions_round_trip() {
+        let mut config = sample_config();
+        config.extensions = "infrabot {\n    public_url = \"https://bot.example\"\n}".into();
+        assert_eq!(parse_generated_config(&config.render()).unwrap(), config);
+    }
+
+    #[test]
+    fn write_preserves_existing_extensions() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = ConfigPath(directory.path().join(".infra"));
+        let mut existing = sample_config();
+        existing.extensions = "infrabot {\n    public_url = \"https://bot.example\"\n}".into();
+        fs::write(path.as_ref(), existing.render()).unwrap();
+
+        let replacement = ProjectConfig {
+            project: "renamed".into(),
+            ..sample_config()
+        };
+        replacement.write(&path).unwrap();
+        let written = ProjectConfig::read(&path).unwrap();
+        assert_eq!(written.project, "renamed");
+        assert_eq!(written.extensions, existing.extensions);
     }
 
     #[test]
