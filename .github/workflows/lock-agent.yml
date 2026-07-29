@@ -1,0 +1,31 @@
+name: lock agent dependencies
+
+on:
+  push:
+    branches:
+      - agent/containerized-service-monitor
+
+permissions:
+  contents: write
+
+jobs:
+  lock:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/containerized-service-monitor
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo generate-lockfile
+      - name: Commit lockfile
+        run: |
+          set -Eeuo pipefail
+          if git diff --quiet -- Cargo.lock && test -f Cargo.lock; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add Cargo.lock
+          git commit -m "Lock agent dependencies"
+          git push origin HEAD:agent/containerized-service-monitor
