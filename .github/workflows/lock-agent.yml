@@ -1,4 +1,4 @@
-name: lock agent dependencies
+name: finalize agent source
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  lock:
+  finalize:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -17,15 +17,130 @@ jobs:
         with:
           ref: agent/containerized-service-monitor
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply input extraction semantics
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/agent.rs")
+          text = path.read_text()
+
+          old = '''        let observed = after
+              .as_ref()
+              .or(before.as_ref())
+              .context("transition has no state")?;
+          send_event(
+              client,
+              &config.output,
+              &credential,
+              &kind,
+              before.as_ref(),
+              after.as_ref(),
+              observed,
+          )?;'''
+          new = '''        let observed = after
+              .as_ref()
+              .or(before.as_ref())
+              .context("transition has no state")?;
+          let input_fields = config
+              .inputs
+              .iter()
+              .find(|input| input.id == observed.input)
+              .map(|input| &input.fields)
+              .context("transition input is not configured")?;
+          send_event(
+              client,
+              &config.output,
+              &credential,
+              &kind,
+              before.as_ref(),
+              after.as_ref(),
+              observed,
+              input_fields,
+          )?;'''
+          if old not in text:
+              raise SystemExit("poll transition block not found")
+          text = text.replace(old, new, 1)
+
+          old = '''    observed: &ObservedContainer,
+          ) -> Result<()> {'''
+          new = '''    observed: &ObservedContainer,
+              input_fields: &BTreeSet<String>,
+          ) -> Result<()> {'''
+          if old not in text:
+              raise SystemExit("send_event signature not found")
+          text = text.replace(old, new, 1)
+
+          old = '''    let available = event_fields(kind, previous_status, current_status, observed);'''
+          new = '''    let available = event_fields(
+              kind,
+              previous_status,
+              current_status,
+              observed,
+              input_fields,
+          );'''
+          if old not in text:
+              raise SystemExit("event_fields call not found")
+          text = text.replace(old, new, 1)
+
+          old = '''    observed: &ObservedContainer,
+          ) -> BTreeMap<String, String> {
+              BTreeMap::from([
+                  ("kind".to_owned(), kind.to_owned()),
+                  ("input".to_owned(), observed.input.clone()),
+                  ("docker_address".to_owned(), observed.docker_address.clone()),
+                  ("container".to_owned(), observed.container.clone()),
+                  ("container_id".to_owned(), observed.container_id.clone()),
+                  ("project".to_owned(), observed.project.clone()),
+                  ("service".to_owned(), observed.service.clone()),
+                  ("image".to_owned(), observed.image.clone()),
+                  ("state".to_owned(), observed.state.clone()),
+                  ("health".to_owned(), observed.health.clone()),
+                  ("previous_status".to_owned(), previous_status.to_owned()),
+                  ("status".to_owned(), current_status.to_owned()),
+              ])
+          }'''
+          new = '''    observed: &ObservedContainer,
+              input_fields: &BTreeSet<String>,
+          ) -> BTreeMap<String, String> {
+              let mut fields = BTreeMap::from([
+                  ("kind".to_owned(), kind.to_owned()),
+                  ("input".to_owned(), observed.input.clone()),
+                  ("docker_address".to_owned(), observed.docker_address.clone()),
+                  ("container".to_owned(), observed.container.clone()),
+                  ("container_id".to_owned(), observed.container_id.clone()),
+                  ("project".to_owned(), observed.project.clone()),
+                  ("service".to_owned(), observed.service.clone()),
+                  ("image".to_owned(), observed.image.clone()),
+                  ("state".to_owned(), observed.state.clone()),
+                  ("health".to_owned(), observed.health.clone()),
+                  ("previous_status".to_owned(), previous_status.to_owned()),
+                  ("status".to_owned(), current_status.to_owned()),
+              ]);
+              fields.retain(|name, _| {
+                  matches!(name.as_str(), "kind" | "previous_status" | "status")
+                      || input_fields.contains(name)
+              });
+              fields
+          }'''
+          if old not in text:
+              raise SystemExit("event_fields body not found")
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+      - run: cargo fmt
       - run: cargo generate-lockfile
-      - name: Commit lockfile
+      - name: Commit finalized source
         run: |
           set -Eeuo pipefail
-          if git diff --quiet -- Cargo.lock && test -f Cargo.lock; then
+          if [[ -z "$(git status --porcelain -- src Cargo.lock)" ]]; then
             exit 0
           fi
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add Cargo.lock
-          git commit -m "Lock agent dependencies"
+          git add src Cargo.lock
+          git commit -m "Finalize agent input contract"
           git push origin HEAD:agent/containerized-service-monitor
