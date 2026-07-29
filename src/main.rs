@@ -4,7 +4,7 @@ mod runtime;
 
 use anyhow::Result;
 use clap::Parser;
-use cli::{Cli, Command, ServiceAction};
+use cli::{Cli, Command, ServiceAction, ServiceArgs};
 use config::{ConfigPath, ProjectConfig, Wizard};
 use runtime::{DockerRuntime, Runtime};
 
@@ -25,17 +25,15 @@ fn main() -> Result<()> {
         }
         Some(Command::Apply(args)) => {
             let path = ConfigPath::resolve(args.path.as_deref())?;
-            let config = ProjectConfig::read(&path)?;
-            runtime.apply(&config)?;
+            runtime.apply(&ProjectConfig::read(&path)?)?;
         }
         Some(Command::Stop(args)) => {
             let path = ConfigPath::resolve(args.path.as_deref())?;
-            let config = ProjectConfig::read(&path)?;
-            runtime.stop_project(&config)?;
+            runtime.stop_project(&ProjectConfig::read(&path)?)?;
         }
-        Some(Command::Service(args)) => {
-            let path = ConfigPath::default();
-            let config = ProjectConfig::read(&path)?;
+        Some(Command::Service(parts)) => {
+            let args = ServiceArgs::try_from(parts)?;
+            let config = ProjectConfig::read(&ConfigPath::default())?;
             match args.action {
                 None => runtime.service_status(&config, &args.name)?,
                 Some(ServiceAction::Logs) => runtime.logs(&config, &args.name)?,
