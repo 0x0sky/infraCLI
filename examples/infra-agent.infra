@@ -1,0 +1,35 @@
+infra 1
+
+project "infra-agent" {
+    runtime = "docker"
+
+    service "agent" {
+        source = "."
+        build = "Dockerfile.agent"
+        expose = 9090
+        health = "/health"
+    }
+}
+
+agent {
+    poll_interval_seconds = 15
+    health_bind = "0.0.0.0:9090"
+    state_file = "/var/lib/infra/state.json"
+
+    input "market-docker" {
+        driver = "docker"
+        addresses = ["http://docker-api:2375"]
+        projects = ["zero-x-da-market-development", "zero-x-da-market-bot-development"]
+        services = ["api", "bot"]
+        fields = ["input", "docker_address", "container", "project", "service", "image", "state", "health"]
+    }
+
+    output "infra_services_bot" {
+        driver = "infrabot"
+        endpoint = "http://infra-bot:8787"
+        source = "vps-spaceship-01"
+        credential = env("INFRA_CREDENTIALS_FILE")
+        events = ["service.failed", "service.recovered", "service.started", "service.removed"]
+        fields = ["kind", "project", "service", "container", "image", "previous_status", "status"]
+    }
+}
