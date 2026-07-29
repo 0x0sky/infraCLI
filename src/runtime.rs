@@ -75,7 +75,9 @@ impl Runtime for DockerRuntime {
             &tag,
             &config.service.source,
         ])?;
-        let _ = Command::new("docker").args(["rm", "-f", &container]).status();
+        let _ = Command::new("docker")
+            .args(["rm", "-f", &container])
+            .status();
         self.run_service(config, &config.service.name)?;
         println!("configuration applied");
         Ok(())
@@ -108,7 +110,9 @@ impl Runtime for DockerRuntime {
         self.ensure_service(config, service)?;
         let container = Self::container_name(config, service);
         println!("restarting {service}...");
-        let _ = Command::new("docker").args(["rm", "-f", &container]).status();
+        let _ = Command::new("docker")
+            .args(["rm", "-f", &container])
+            .status();
         self.run_service(config, service)?;
         println!("{service} running");
         Ok(())
