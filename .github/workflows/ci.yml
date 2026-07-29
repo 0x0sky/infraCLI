@@ -57,9 +57,13 @@ jobs:
               r'''(fn send_event\(.*?    after: Option<&ObservedContainer>,\n)    observed: &ObservedContainer,\n\) -> Result<\(\)> \{''',
               re.S,
           )
-          replacement = '''\1    input_fields: &BTreeSet<String>,
-          ) -> Result<()> {'''
-          text, count = pattern.subn(replacement, text, count=1)
+          text, count = pattern.subn(
+              lambda match: match.group(1)
+              + '''    input_fields: &BTreeSet<String>,
+          ) -> Result<()> {''',
+              text,
+              count=1,
+          )
           if count != 1:
               raise SystemExit("send_event signature not found")
 
