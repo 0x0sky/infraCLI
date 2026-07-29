@@ -2,19 +2,25 @@ mod cli;
 mod config;
 mod runtime;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, Command, ServiceAction, ServiceArgs};
 use config::{ConfigPath, ProjectConfig, Wizard};
 use runtime::{DockerRuntime, Runtime};
-use std::io::{self, Write};
+use std::{
+    fs,
+    io::{self, Write},
+};
 
 fn confirm(prompt: &str) -> Result<bool> {
     print!("{prompt} [y/n]: ");
     io::stdout().flush()?;
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
-    Ok(matches!(input.trim().to_ascii_lowercase().as_str(), "y" | "yes"))
+    Ok(matches!(
+        input.trim().to_ascii_lowercase().as_str(),
+        "y" | "yes"
+    ))
 }
 
 fn main() -> Result<()> {
@@ -42,11 +48,31 @@ fn main() -> Result<()> {
         }
         Some(Command::Rm(args)) => {
             let path = ConfigPath::resolve(args.path.as_deref())?;
-            let config = ProjectConfig::read(&path)?;
-            if confirm(&format!("remove project {} runtime objects?", config.project))? {
-                runtime.remove_project(&config)?;
+            if args.all {
+                let config = ProjectConfig::read(&path)?;
+                if confirm(&format!(
+                    "remove all services from project {}?",
+                    config.project
+                ))? {
+                    runtime.remove_all_services(&config)?;
+                    println!("configuration preserved at {}", path.display());
+                } else {
+                    println!("remove cancelled");
+                }
+            } else if let Some(service) = args.service {
+                let config = ProjectConfig::read(&path)?;
+                if confirm(&format!("remove service {service}?"))? {
+                    runtime.remove_service(&config, &service)?;
+                    println!("configuration preserved at {}", path.display());
+                } else {
+                    println!("remove cancelled");
+                }
+            } else if confirm(&format!("deinitialize infra at {}?", path.display()))? {
+                fs::remove_file(path.as_ref())
+                    .with_context(|| format!("remove {}", path.display()))?;
+                println!("infra deinitialized");
             } else {
-                println!("remove cancelled");
+                println!("deinitialization cancelled");
             }
         }
         Some(Command::Service(parts)) => {
@@ -57,13 +83,6 @@ fn main() -> Result<()> {
                 Some(ServiceAction::Logs) => runtime.logs(&config, &args.name)?,
                 Some(ServiceAction::Restart) => runtime.restart(&config, &args.name)?,
                 Some(ServiceAction::Stop) => runtime.stop_service(&config, &args.name)?,
-                Some(ServiceAction::Rm) => {
-                    if confirm(&format!("remove service {} runtime object?", args.name))? {
-                        runtime.remove_service(&config, &args.name)?;
-                    } else {
-                        println!("remove cancelled");
-                    }
-                }
             }
         }
     }
