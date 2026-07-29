@@ -118,6 +118,20 @@ project "market" {
 
 The initial MVP supports one service and a Docker backend. The architecture keeps configuration, CLI parsing, and runtime execution separated so multiple services and runtimes can be added without changing the lifecycle contract.
 
+## planned notifications
+
+The proposed event-driven notification system is documented in [`docs/notifications.md`](docs/notifications.md).
+
+It defines runtime-neutral events, state-change delivery, deduplication, cooldowns, recovery correlation, persistent state, provider contracts, and future commands:
+
+```text
+infra notify test
+infra watch --once
+infra watch
+```
+
+These commands and the notification configuration are design contracts, not currently implemented CLI behavior.
+
 ## development
 
 ```bash
