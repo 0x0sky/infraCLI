@@ -19,6 +19,7 @@ const MAX_POLL_INTERVAL: u64 = 10;
 
 pub struct TelegramAuthOptions {
     pub endpoint: String,
+    pub source: String,
     pub no_open: bool,
 }
 
@@ -32,6 +33,7 @@ struct CreatePairingRequest<'a> {
     code_challenge: &'a str,
     client: &'static str,
     client_version: &'static str,
+    source: &'a str,
 }
 
 #[derive(Deserialize)]
@@ -53,6 +55,7 @@ struct TokenResponse {
     token_type: String,
     expires_at: u64,
     telegram_user_id: i64,
+    source: String,
 }
 
 #[derive(Deserialize)]
@@ -64,6 +67,7 @@ struct ApiError {
 struct CredentialFile<'a> {
     version: u8,
     endpoint: &'a str,
+    source: &'a str,
     token_type: &'a str,
     access_token: &'a str,
     expires_at: u64,
@@ -72,6 +76,7 @@ struct CredentialFile<'a> {
 
 pub fn authorize_telegram(options: TelegramAuthOptions) -> Result<()> {
     let endpoint = normalize_endpoint(&options.endpoint)?;
+    validate_source(&options.source)?;
     let verifier = random_token(VERIFIER_BYTES);
     let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     let client = Client::builder()
@@ -86,6 +91,7 @@ pub fn authorize_telegram(options: TelegramAuthOptions) -> Result<()> {
             code_challenge: &challenge,
             client: "infraCLI",
             client_version: env!("CARGO_PKG_VERSION"),
+            source: &options.source,
         })
         .send()
         .context("create Telegram pairing session")?
@@ -94,7 +100,7 @@ pub fn authorize_telegram(options: TelegramAuthOptions) -> Result<()> {
         .json::<CreatePairingResponse>()
         .context("decode pairing response")?;
 
-    println!("authorize infraCLI in Telegram:");
+    println!("authorize infraCLI source {} in Telegram:", options.source);
     println!("{}", pairing.verification_uri_complete);
 
     if !options.no_open && !open_uri(&pairing.verification_uri_complete) {
@@ -103,9 +109,15 @@ pub fn authorize_telegram(options: TelegramAuthOptions) -> Result<()> {
 
     println!("waiting for confirmation...");
     let token = poll_for_token(&client, &endpoint, &pairing, &verifier)?;
+    if token.source != options.source {
+        bail!("infraBot returned credentials for an unexpected source");
+    }
     let path = write_credentials(&endpoint, &token)?;
 
-    println!("authorized as Telegram user {}", token.telegram_user_id);
+    println!(
+        "authorized source {} as Telegram user {}",
+        token.source, token.telegram_user_id
+    );
     println!("credentials stored at {}", path.display());
     Ok(())
 }
@@ -136,7 +148,10 @@ fn poll_for_token(
                 let token = response
                     .json::<TokenResponse>()
                     .context("decode authorization token")?;
-                if token.token_type != "Bearer" || token.access_token.is_empty() {
+                if token.token_type != "Bearer"
+                    || token.access_token.is_empty()
+                    || token.source.is_empty()
+                {
                     bail!("infraBot returned an invalid authorization token");
                 }
                 return Ok(token);
@@ -178,6 +193,18 @@ fn normalize_endpoint(value: &str) -> Result<String> {
     Ok(parsed.as_str().trim_end_matches('/').to_owned())
 }
 
+fn validate_source(value: &str) -> Result<()> {
+    if value.is_empty()
+        || value.len() > 64
+        || !value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'))
+    {
+        bail!("source must contain 1-64 ASCII letters, digits, dots, dashes, or underscores");
+    }
+    Ok(())
+}
+
 fn random_token(bytes: usize) -> String {
     let mut value = vec![0_u8; bytes];
     OsRng.fill_bytes(&mut value);
@@ -215,6 +242,7 @@ fn write_credentials(endpoint: &str, token: &TokenResponse) -> Result<PathBuf> {
     let document = CredentialFile {
         version: 1,
         endpoint,
+        source: &token.source,
         token_type: &token.token_type,
         access_token: &token.access_token,
         expires_at: token.expires_at,
@@ -303,6 +331,14 @@ mod tests {
         assert!(normalize_endpoint("http://bot.example").is_err());
         assert!(normalize_endpoint("http://localhost.evil.example").is_err());
         assert!(normalize_endpoint("https://user:secret@bot.example").is_err());
+    }
+
+    #[test]
+    fn validates_source_identifiers() {
+        assert!(validate_source("primary-vps").is_ok());
+        assert!(validate_source("host.eu_1").is_ok());
+        assert!(validate_source("").is_err());
+        assert!(validate_source("host/name").is_err());
     }
 
     #[test]
