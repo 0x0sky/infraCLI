@@ -28,33 +28,31 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path("src/agent.rs")
           text = path.read_text()
 
-          declaration = '''struct EventRequest<'a> {
-              kind: &'a str,'''
-          if declaration not in text:
-              raise SystemExit("EventRequest declaration not found")
-          text = text.replace(
-              declaration,
-              '''struct EventRequest<'a> {
-              output: &'a str,
-              kind: &'a str,''',
-              1,
-          )
+          if "output: &'a str" not in text:
+              text, count = re.subn(
+                  r"(struct EventRequest<'a>\s*\{\s*\n)(\s*)(kind:\s*&'a str,)",
+                  r"\1\2output: &'a str,\n\2\3",
+                  text,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit("EventRequest declaration not found")
 
-          construction = '''    let request = EventRequest {
-              kind,'''
-          if construction not in text:
-              raise SystemExit("EventRequest construction not found")
-          text = text.replace(
-              construction,
-              '''    let request = EventRequest {
-              output: &output.id,
-              kind,''',
-              1,
-          )
+          if "output: &output.id" not in text:
+              text, count = re.subn(
+                  r"(let request = EventRequest\s*\{\s*\n)(\s*)(kind,)",
+                  r"\1\2output: &output.id,\n\2\3",
+                  text,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit("EventRequest construction not found")
+
           path.write_text(text)
 
           readme = Path("README.md")
@@ -77,6 +75,9 @@ jobs:
       - name: Commit output identity
         run: |
           set -Eeuo pipefail
+          if [[ -z "$(git status --porcelain -- src/agent.rs README.md)" ]]; then
+            exit 0
+          fi
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add src/agent.rs README.md
