@@ -62,6 +62,10 @@ pub struct TelegramAuthArgs {
     #[arg(long, env = "INFRABOT_URL")]
     pub endpoint: String,
 
+    /// Source identifier declared in infraBot's .infra registry.
+    #[arg(long, env = "INFRA_SOURCE")]
+    pub source: String,
+
     /// Print the Telegram deep link without opening it.
     #[arg(long)]
     pub no_open: bool,
@@ -142,6 +146,8 @@ mod tests {
             "telegram",
             "--endpoint",
             "https://bot.example",
+            "--source",
+            "primary",
             "--no-open",
         ])
         .unwrap();
@@ -150,6 +156,7 @@ mod tests {
         };
         let AuthProvider::Telegram(args) = args.provider;
         assert_eq!(args.endpoint, "https://bot.example");
+        assert_eq!(args.source, "primary");
         assert!(args.no_open);
     }
 }
