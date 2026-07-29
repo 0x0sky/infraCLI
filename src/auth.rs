@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rand::{RngCore, rngs::OsRng};
-use reqwest::{StatusCode, blocking::Client};
+use reqwest::{StatusCode, Url, blocking::Client};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -20,6 +20,11 @@ const MAX_POLL_INTERVAL: u64 = 10;
 pub struct TelegramAuthOptions {
     pub endpoint: String,
     pub no_open: bool,
+}
+
+struct CredentialLocation {
+    path: PathBuf,
+    manage_parent_permissions: bool,
 }
 
 #[derive(Serialize)]
@@ -155,19 +160,22 @@ fn poll_for_token(
 }
 
 fn normalize_endpoint(value: &str) -> Result<String> {
-    let endpoint = value.trim().trim_end_matches('/').to_owned();
-    let secure = endpoint.starts_with("https://");
-    let local = endpoint.starts_with("http://127.0.0.1")
-        || endpoint.starts_with("http://localhost")
-        || endpoint.starts_with("http://[::1]");
-
-    if endpoint.is_empty() {
-        bail!("infraBot endpoint is required");
+    let parsed = Url::parse(value.trim()).context("infraBot endpoint is not a valid URL")?;
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        bail!("infraBot endpoint must not contain credentials");
     }
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        bail!("infraBot endpoint must not contain a query or fragment");
+    }
+
+    let host = parsed.host_str().context("infraBot endpoint has no host")?;
+    let secure = parsed.scheme() == "https";
+    let local = parsed.scheme() == "http" && matches!(host, "localhost" | "127.0.0.1" | "::1");
     if !secure && !local {
         bail!("infraBot endpoint must use HTTPS; HTTP is allowed only for localhost");
     }
-    Ok(endpoint)
+
+    Ok(parsed.as_str().trim_end_matches('/').to_owned())
 }
 
 fn random_token(bytes: usize) -> String {
@@ -176,23 +184,33 @@ fn random_token(bytes: usize) -> String {
     URL_SAFE_NO_PAD.encode(value)
 }
 
-fn credentials_path() -> Result<PathBuf> {
+fn credentials_location() -> Result<CredentialLocation> {
     if let Some(path) = env::var_os("INFRA_CREDENTIALS_FILE") {
-        return Ok(PathBuf::from(path));
+        return Ok(CredentialLocation {
+            path: PathBuf::from(path),
+            manage_parent_permissions: false,
+        });
     }
     if let Some(root) = env::var_os("XDG_CONFIG_HOME") {
-        return Ok(PathBuf::from(root).join("infra/credentials.json"));
+        return Ok(CredentialLocation {
+            path: PathBuf::from(root).join("infra/credentials.json"),
+            manage_parent_permissions: true,
+        });
     }
     if let Some(home) = env::var_os("HOME") {
-        return Ok(PathBuf::from(home).join(".config/infra/credentials.json"));
+        return Ok(CredentialLocation {
+            path: PathBuf::from(home).join(".config/infra/credentials.json"),
+            manage_parent_permissions: true,
+        });
     }
     bail!("cannot resolve credentials path; set INFRA_CREDENTIALS_FILE")
 }
 
 fn write_credentials(endpoint: &str, token: &TokenResponse) -> Result<PathBuf> {
-    let path = credentials_path()?;
+    let location = credentials_location()?;
+    let path = location.path;
     let parent = path.parent().context("credentials path has no parent")?;
-    create_private_directory(parent)?;
+    prepare_directory(parent, location.manage_parent_permissions)?;
 
     let document = CredentialFile {
         version: 1,
@@ -211,16 +229,20 @@ fn write_credentials(endpoint: &str, token: &TokenResponse) -> Result<PathBuf> {
 }
 
 #[cfg(unix)]
-fn create_private_directory(path: &Path) -> Result<()> {
+fn prepare_directory(path: &Path, manage_existing_permissions: bool) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
+    let existed = path.exists();
     fs::create_dir_all(path).with_context(|| format!("create {}", path.display()))?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-        .with_context(|| format!("secure {}", path.display()))
+    if manage_existing_permissions || !existed {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+            .with_context(|| format!("secure {}", path.display()))?;
+    }
+    Ok(())
 }
 
 #[cfg(not(unix))]
-fn create_private_directory(path: &Path) -> Result<()> {
+fn prepare_directory(path: &Path, _manage_existing_permissions: bool) -> Result<()> {
     fs::create_dir_all(path).with_context(|| format!("create {}", path.display()))
 }
 
@@ -279,6 +301,8 @@ mod tests {
         assert!(normalize_endpoint("http://localhost:8787").is_ok());
         assert!(normalize_endpoint("http://127.0.0.1:8787").is_ok());
         assert!(normalize_endpoint("http://bot.example").is_err());
+        assert!(normalize_endpoint("http://localhost.evil.example").is_err());
+        assert!(normalize_endpoint("https://user:secret@bot.example").is_err());
     }
 
     #[test]
