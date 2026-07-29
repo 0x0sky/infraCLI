@@ -47,6 +47,12 @@ The command creates a five-minute one-time pairing session, opens its Telegram d
 
 One infraBot instance may authorize multiple independent infraCLI installations through the same Telegram bot and Telegram account. Each CLI runs its own pairing flow, receives a distinct session and access token, and stores credentials only on that machine. Pairing one CLI does not replace or invalidate credentials held by another CLI.
 
+```text
+infraCLI · laptop ─┐
+                   ├──► one infraBot ───► one Telegram bot
+infraCLI · vps-01 ─┘
+```
+
 The deep link contains only a short-lived pairing secret. It never contains the resulting access token or the CLI verifier. Non-local HTTP endpoints are rejected; production authorization requires HTTPS.
 
 Credentials are written atomically to `${XDG_CONFIG_HOME}/infra/credentials.json` or `~/.config/infra/credentials.json`. On Unix, the directory is restricted to mode `0700` and the credential file to `0600`. Set `INFRA_CREDENTIALS_FILE` to use another protected location.
