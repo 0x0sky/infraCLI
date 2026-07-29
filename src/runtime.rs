@@ -6,10 +6,12 @@ pub trait Runtime {
     fn status(&self, path: &crate::config::ConfigPath) -> Result<()>;
     fn apply(&self, config: &ProjectConfig) -> Result<()>;
     fn stop_project(&self, config: &ProjectConfig) -> Result<()>;
+    fn remove_project(&self, config: &ProjectConfig) -> Result<()>;
     fn service_status(&self, config: &ProjectConfig, service: &str) -> Result<()>;
     fn logs(&self, config: &ProjectConfig, service: &str) -> Result<()>;
     fn restart(&self, config: &ProjectConfig, service: &str) -> Result<()>;
     fn stop_service(&self, config: &ProjectConfig, service: &str) -> Result<()>;
+    fn remove_service(&self, config: &ProjectConfig, service: &str) -> Result<()>;
 }
 
 pub struct DockerRuntime;
@@ -36,6 +38,17 @@ impl DockerRuntime {
     fn container_name(config: &ProjectConfig, service: &str) -> String {
         format!("{}-{service}", config.project)
     }
+
+    fn image_tag(config: &ProjectConfig, service: &str) -> String {
+        format!("{}-{service}:latest", config.project)
+    }
+
+    fn run_service(&self, config: &ProjectConfig, service: &str) -> Result<()> {
+        let container = Self::container_name(config, service);
+        let tag = Self::image_tag(config, service);
+        let port = format!("{}:{}", config.service.port, config.service.port);
+        self.docker(&["run", "-d", "--name", &container, "-p", &port, &tag])
+    }
 }
 
 impl Runtime for DockerRuntime {
@@ -51,24 +64,32 @@ impl Runtime for DockerRuntime {
         if config.runtime != "docker" {
             anyhow::bail!("unsupported runtime: {}", config.runtime);
         }
-        let tag = format!("{}-{}:latest", config.project, config.service.name);
+        let tag = Self::image_tag(config, &config.service.name);
         let container = Self::container_name(config, &config.service.name);
         println!("applying configuration...");
-        self.docker(&["build", "-f", &config.service.build_file, "-t", &tag, &config.service.source])?;
-        let _ = Command::new("docker").args(["rm", "-f", &container]).status();
         self.docker(&[
-            "run", "-d", "--name", &container,
-            "-p", &format!("{}:{}", config.service.port, config.service.port),
+            "build",
+            "-f",
+            &config.service.build_file,
+            "-t",
             &tag,
+            &config.service.source,
         ])?;
+        let _ = Command::new("docker").args(["rm", "-f", &container]).status();
+        self.run_service(config, &config.service.name)?;
         println!("configuration applied");
         Ok(())
     }
 
     fn stop_project(&self, config: &ProjectConfig) -> Result<()> {
-        let container = Self::container_name(config, &config.service.name);
-        self.docker(&["stop", &container])?;
+        self.stop_service(config, &config.service.name)?;
         println!("project stopped");
+        Ok(())
+    }
+
+    fn remove_project(&self, config: &ProjectConfig) -> Result<()> {
+        self.remove_service(config, &config.service.name)?;
+        println!("project removed");
         Ok(())
     }
 
@@ -85,11 +106,25 @@ impl Runtime for DockerRuntime {
 
     fn restart(&self, config: &ProjectConfig, service: &str) -> Result<()> {
         self.ensure_service(config, service)?;
-        self.docker(&["restart", &Self::container_name(config, service)])
+        let container = Self::container_name(config, service);
+        println!("restarting {service}...");
+        let _ = Command::new("docker").args(["rm", "-f", &container]).status();
+        self.run_service(config, service)?;
+        println!("{service} running");
+        Ok(())
     }
 
     fn stop_service(&self, config: &ProjectConfig, service: &str) -> Result<()> {
         self.ensure_service(config, service)?;
-        self.docker(&["stop", &Self::container_name(config, service)])
+        self.docker(&["stop", &Self::container_name(config, service)])?;
+        println!("{service} stopped");
+        Ok(())
+    }
+
+    fn remove_service(&self, config: &ProjectConfig, service: &str) -> Result<()> {
+        self.ensure_service(config, service)?;
+        self.docker(&["rm", "-f", &Self::container_name(config, service)])?;
+        println!("{service} removed");
+        Ok(())
     }
 }
