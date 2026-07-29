@@ -17,15 +17,46 @@ infra
 infra conf [path] [-a|--apply]
 infra apply [path]
 infra stop [path]
+infra rm [path]
 infra <service>
 infra <service> logs
 infra <service> restart
 infra <service> stop
+infra <service> rm
 ```
 
-`infra` shows project state. `infra conf` creates configuration. `infra apply` reconciles runtime state. `infra stop` stops the project without deleting containers, images, networks, volumes, or configuration.
+`infra` shows project state. `infra conf` creates configuration. `infra apply` reconciles runtime state.
+
+`infra stop` stops managed containers but keeps them available for a later start.
+
+`infra rm` removes managed runtime containers after confirmation. It does not remove `.infra`, images, volumes, networks, or source files.
 
 `infra conf` and `infra conf .` both target `./.infra`. A directory path becomes `<path>/.infra`; an explicit `.infra` or `*.infra` filename is preserved.
+
+## lifecycle semantics
+
+```text
+conf → apply → inspect → stop | restart | rm
+```
+
+- `stop` preserves the container object.
+- `restart` recreates the selected service from the current `.infra` desired state using the existing image.
+- `rm` removes the selected managed container after explicit confirmation.
+- a later `apply` recreates runtime objects that are still declared in `.infra`.
+
+Project-level removal:
+
+```text
+infra rm
+remove project market runtime objects? [y/n]:
+```
+
+Service-level removal:
+
+```text
+infra api rm
+remove service api runtime object? [y/n]:
+```
 
 ## configuration flow
 
@@ -84,5 +115,3 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 ```
-
-No destructive lifecycle command is exposed.
