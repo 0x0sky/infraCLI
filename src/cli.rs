@@ -14,6 +14,7 @@ pub enum Command {
     Apply(PathArgs),
     Stop(PathArgs),
     Rm(RmArgs),
+    Auth(AuthArgs),
     #[command(external_subcommand)]
     Service(Vec<String>),
 }
@@ -42,6 +43,28 @@ pub struct RmArgs {
     /// Configuration path used for deinitialization or service resolution.
     #[arg(long = "path")]
     pub path: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct AuthArgs {
+    #[command(subcommand)]
+    pub provider: AuthProvider,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AuthProvider {
+    Telegram(TelegramAuthArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct TelegramAuthArgs {
+    /// Public infraBot API base URL.
+    #[arg(long, env = "INFRABOT_URL")]
+    pub endpoint: String,
+
+    /// Print the Telegram deep link without opening it.
+    #[arg(long)]
+    pub no_open: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -109,5 +132,24 @@ mod tests {
     #[test]
     fn rejects_rm_all_with_service() {
         assert!(Cli::try_parse_from(["infra", "rm", "api", "--all"]).is_err());
+    }
+
+    #[test]
+    fn parses_telegram_auth() {
+        let cli = Cli::try_parse_from([
+            "infra",
+            "auth",
+            "telegram",
+            "--endpoint",
+            "https://bot.example",
+            "--no-open",
+        ])
+        .unwrap();
+        let Some(Command::Auth(args)) = cli.command else {
+            panic!("expected auth command");
+        };
+        let AuthProvider::Telegram(args) = args.provider;
+        assert_eq!(args.endpoint, "https://bot.example");
+        assert!(args.no_open);
     }
 }
