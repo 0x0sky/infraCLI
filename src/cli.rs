@@ -13,6 +13,7 @@ pub enum Command {
     Conf(ConfArgs),
     Apply(PathArgs),
     Stop(PathArgs),
+    Rm(PathArgs),
     #[command(external_subcommand)]
     Service(Vec<String>),
 }
@@ -34,6 +35,7 @@ pub enum ServiceAction {
     Logs,
     Restart,
     Stop,
+    Rm,
 }
 
 #[derive(Debug)]
@@ -47,17 +49,32 @@ impl TryFrom<Vec<String>> for ServiceArgs {
 
     fn try_from(parts: Vec<String>) -> Result<Self, Self::Error> {
         let mut parts = parts.into_iter();
-        let name = parts.next().ok_or_else(|| anyhow::anyhow!("service name is required"))?;
+        let name = parts
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("service name is required"))?;
         let action = match parts.next().as_deref() {
             None => None,
             Some("logs") => Some(ServiceAction::Logs),
             Some("restart") => Some(ServiceAction::Restart),
             Some("stop") => Some(ServiceAction::Stop),
+            Some("rm") => Some(ServiceAction::Rm),
             Some(other) => anyhow::bail!("unknown service action: {other}"),
         };
         if parts.next().is_some() {
             anyhow::bail!("too many service arguments");
         }
         Ok(Self { name, action })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_service_remove_action() {
+        let args = ServiceArgs::try_from(vec!["api".into(), "rm".into()]).unwrap();
+        assert_eq!(args.name, "api");
+        assert!(matches!(args.action, Some(ServiceAction::Rm)));
     }
 }
