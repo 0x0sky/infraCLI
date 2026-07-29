@@ -6,7 +6,7 @@ pub trait Runtime {
     fn status(&self, path: &crate::config::ConfigPath) -> Result<()>;
     fn apply(&self, config: &ProjectConfig) -> Result<()>;
     fn stop_project(&self, config: &ProjectConfig) -> Result<()>;
-    fn remove_project(&self, config: &ProjectConfig) -> Result<()>;
+    fn remove_all_services(&self, config: &ProjectConfig) -> Result<()>;
     fn service_status(&self, config: &ProjectConfig, service: &str) -> Result<()>;
     fn logs(&self, config: &ProjectConfig, service: &str) -> Result<()>;
     fn restart(&self, config: &ProjectConfig, service: &str) -> Result<()>;
@@ -87,9 +87,9 @@ impl Runtime for DockerRuntime {
         Ok(())
     }
 
-    fn remove_project(&self, config: &ProjectConfig) -> Result<()> {
+    fn remove_all_services(&self, config: &ProjectConfig) -> Result<()> {
         self.remove_service(config, &config.service.name)?;
-        println!("project removed");
+        println!("all services removed");
         Ok(())
     }
 
