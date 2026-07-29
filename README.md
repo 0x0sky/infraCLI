@@ -17,21 +17,18 @@ infra
 infra conf [path] [-a|--apply]
 infra apply [path]
 infra stop [path]
-infra rm [path]
+infra rm [--path <path>]
+infra rm -a|--all [--path <path>]
+infra rm <service> [--path <path>]
 infra <service>
 infra <service> logs
 infra <service> restart
 infra <service> stop
-infra <service> rm
 ```
 
 `infra` shows project state. `infra conf` creates configuration. `infra apply` reconciles runtime state.
 
-`infra stop` stops managed containers but keeps them available for a later start.
-
-`infra rm` removes managed runtime containers after confirmation. It does not remove `.infra`, images, volumes, networks, or source files.
-
-`infra conf` and `infra conf .` both target `./.infra`. A directory path becomes `<path>/.infra`; an explicit `.infra` or `*.infra` filename is preserved.
+`infra stop` stops managed containers but keeps their runtime objects.
 
 ## lifecycle semantics
 
@@ -40,23 +37,36 @@ conf → apply → inspect → stop | restart | rm
 ```
 
 - `stop` preserves the container object.
-- `restart` recreates the selected service from the current `.infra` desired state using the existing image.
-- `rm` removes the selected managed container after explicit confirmation.
-- a later `apply` recreates runtime objects that are still declared in `.infra`.
+- `restart` recreates the selected service from current `.infra` desired state using the existing image.
+- `rm` without a target removes `.infra` and deinitializes infra for the project. It does not remove running services.
+- `rm -a` or `rm --all` removes every managed service while preserving `.infra`.
+- `rm <service>` removes one managed service while preserving `.infra`.
+- a later `apply` recreates services that remain declared in `.infra`.
 
-Project-level removal:
+Deinitialize infra:
 
 ```text
 infra rm
-remove project market runtime objects? [y/n]:
+deinitialize infra at ./.infra? [y/n]:
 ```
 
-Service-level removal:
+Remove every managed service without deinitializing:
 
 ```text
-infra api rm
-remove service api runtime object? [y/n]:
+infra rm --all
+remove all services from project market? [y/n]:
 ```
+
+Remove one service:
+
+```text
+infra rm api
+remove service api? [y/n]:
+```
+
+The three forms are intentionally distinct. `infra rm` only owns configuration lifecycle; service removal requires an explicit service target or `--all`.
+
+`infra conf` and `infra conf .` both target `./.infra`. A directory path becomes `<path>/.infra`; an explicit `.infra` or `*.infra` filename is preserved.
 
 ## configuration flow
 
