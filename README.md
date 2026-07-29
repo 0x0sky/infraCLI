@@ -48,9 +48,9 @@ The command creates a five-minute one-time pairing session, opens its Telegram d
 One infraBot instance may authorize multiple independent infraCLI installations through the same Telegram bot and Telegram account. Each CLI runs its own pairing flow, receives a distinct session and access token, and stores credentials only on that machine. Pairing one CLI does not replace or invalidate credentials held by another CLI.
 
 ```text
-infraCLI · laptop ─┐
+infraCLI · host-a ─┐
                    ├──► one infraBot ───► one Telegram bot
-infraCLI · vps-01 ─┘
+infraCLI · host-b ─┘
 ```
 
 A persistent installation identity is not required for this many-to-one authorization flow. It will be introduced together with explicit device listing and per-device revocation rather than added as unused identity state.
