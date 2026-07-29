@@ -6,84 +6,13 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: infracli-ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  finalize-contract:
-    if: github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: agent/containerized-service-monitor
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - name: Bind events to the named Telegram output
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          path = Path("src/agent.rs")
-          text = path.read_text()
-
-          if "output: &'a str" not in text:
-              text, count = re.subn(
-                  r"(struct EventRequest<'a>\s*\{\s*\n)(\s*)(kind:\s*&'a str,)",
-                  r"\1\2output: &'a str,\n\2\3",
-                  text,
-                  count=1,
-              )
-              if count != 1:
-                  raise SystemExit("EventRequest declaration not found")
-
-          if "output: &output.id" not in text:
-              text, count = re.subn(
-                  r"(let request = EventRequest\s*\{\s*\n)(\s*)(kind,)",
-                  r"\1\2output: &output.id,\n\2\3",
-                  text,
-                  count=1,
-              )
-              if count != 1:
-                  raise SystemExit("EventRequest construction not found")
-
-          path.write_text(text)
-
-          readme = Path("README.md")
-          doc = readme.read_text()
-          doc = doc.replace(
-              "`infra agent` is a long-running adapter process intended to run in its own hardened container.",
-              "`infra agent` is a long-running monitoring process intended to run in its own hardened container.",
-          )
-          doc = doc.replace(
-              "`input.fields` is the extraction contract for the Docker adapter. `output.fields` is the projection contract sent to infraBot. Version 1 supports multiple Docker inputs and exactly one infraBot output.",
-              "`input.fields` is the extraction contract for Docker observations. The `output` block names the Telegram bot, `driver = \"infrabot\"` selects its delivery backend, and `output.fields` defines the projection rendered by that bot. Version 1 supports multiple Docker inputs and exactly one Telegram bot output.",
-          )
-          readme.write_text(doc)
-          PY
-      - run: cargo fmt
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test --all-features
-      - run: docker build -f Dockerfile.agent -t infra-agent:output-identity .
-      - name: Commit output identity
-        run: |
-          set -Eeuo pipefail
-          if [[ -z "$(git status --porcelain -- src/agent.rs README.md)" ]]; then
-            exit 0
-          fi
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/agent.rs README.md
-          git commit -m "Bind events to Telegram output identity"
-          git push origin HEAD:agent/containerized-service-monitor
-
   rust:
     runs-on: ubuntu-latest
     timeout-minutes: 20
