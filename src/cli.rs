@@ -15,6 +15,7 @@ pub enum Command {
     Stop(PathArgs),
     Rm(RmArgs),
     Auth(AuthArgs),
+    Agent(AgentArgs),
     #[command(external_subcommand)]
     Service(Vec<String>),
 }
@@ -69,6 +70,17 @@ pub struct TelegramAuthArgs {
     /// Print the Telegram deep link without opening it.
     #[arg(long)]
     pub no_open: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentArgs {
+    /// .infra file containing the agent input/output contract.
+    #[arg(long, env = "INFRA_CONFIG", default_value = ".infra")]
+    pub config: PathBuf,
+
+    /// Poll once, update state, and exit.
+    #[arg(long)]
+    pub once: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -158,5 +170,22 @@ mod tests {
         assert_eq!(args.endpoint, "https://bot.example");
         assert_eq!(args.source, "primary");
         assert!(args.no_open);
+    }
+
+    #[test]
+    fn parses_agent_command() {
+        let cli = Cli::try_parse_from([
+            "infra",
+            "agent",
+            "--config",
+            "/etc/infra/.infra",
+            "--once",
+        ])
+        .unwrap();
+        let Some(Command::Agent(args)) = cli.command else {
+            panic!("expected agent command");
+        };
+        assert_eq!(args.config, PathBuf::from("/etc/infra/.infra"));
+        assert!(args.once);
     }
 }
