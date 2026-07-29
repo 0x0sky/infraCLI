@@ -1,10 +1,12 @@
+mod auth;
 mod cli;
 mod config;
 mod runtime;
 
 use anyhow::{Context, Result};
+use auth::{authorize_telegram, TelegramAuthOptions};
 use clap::Parser;
-use cli::{Cli, Command, ServiceAction, ServiceArgs};
+use cli::{AuthProvider, Cli, Command, ServiceAction, ServiceArgs};
 use config::{ConfigPath, ProjectConfig, Wizard};
 use runtime::{DockerRuntime, Runtime};
 use std::{
@@ -75,6 +77,12 @@ fn main() -> Result<()> {
                 println!("deinitialization cancelled");
             }
         }
+        Some(Command::Auth(args)) => match args.provider {
+            AuthProvider::Telegram(args) => authorize_telegram(TelegramAuthOptions {
+                endpoint: args.endpoint,
+                no_open: args.no_open,
+            })?,
+        },
         Some(Command::Service(parts)) => {
             let args = ServiceArgs::try_from(parts)?;
             let config = ProjectConfig::read(&ConfigPath::default())?;
