@@ -149,6 +149,7 @@ struct CredentialFile {
 
 #[derive(Serialize)]
 struct EventRequest<'a> {
+    output: &'a str,
     kind: &'a str,
     project: &'a str,
     service: Option<&'a str>,
@@ -378,6 +379,7 @@ fn send_event(
         observed.service.as_str()
     };
     let request = EventRequest {
+        output: &output.id,
         kind,
         project: if observed.project.is_empty() {
             &observed.input

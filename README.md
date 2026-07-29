@@ -34,7 +34,7 @@ infra <service> stop
 
 ## containerized service monitor
 
-`infra agent` is a long-running adapter process intended to run in its own hardened container. It does not own the monitored application containers. Its `.infra` block declares where observations come from and where normalized state-change events go.
+`infra agent` is a long-running monitoring process intended to run in its own hardened container. It does not own the monitored application containers. Its `.infra` block declares where observations come from and where normalized state-change events go.
 
 ```text
 agent {
@@ -63,7 +63,7 @@ agent {
 
 The first poll establishes a baseline and sends nothing. Later polls compare persistent state and emit only transitions. A failed delivery does not advance the stored snapshot, so the transition is retried on the next poll.
 
-`input.fields` is the extraction contract for the Docker adapter. `output.fields` is the projection contract sent to infraBot. Version 1 supports multiple Docker inputs and exactly one infraBot output.
+`input.fields` is the extraction contract for Docker observations. The `output` block names the Telegram bot, `driver = "infrabot"` selects its delivery backend, and `output.fields` defines the projection rendered by that bot. Version 1 supports multiple Docker inputs and exactly one Telegram bot output.
 
 Docker inputs use restricted HTTP API addresses. Do not mount the raw Docker socket into the agent container: access must pass through a private, read-only Docker API proxy exposing only the endpoints required for container listing.
 
