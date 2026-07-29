@@ -34,7 +34,7 @@ infra <service> stop
 
 ## containerized service monitor
 
-`infra agent` is a long-running monitoring process intended to run in its own hardened container. It does not own the monitored application containers. Its `.infra` block declares where observations come from and where normalized state-change events go.
+`infra agent` is a long-running monitoring process intended to run in its own hardened container. It does not own the monitored application containers. Its `.infra` block declares where observations come from and which Telegram bot receives normalized state-change events.
 
 ```text
 agent {
@@ -61,9 +61,13 @@ agent {
 }
 ```
 
+The `output` block name is the Telegram bot username. `driver = "infrabot"` selects its delivery backend and API protocol; it is not the bot identity.
+
 The first poll establishes a baseline and sends nothing. Later polls compare persistent state and emit only transitions. A failed delivery does not advance the stored snapshot, so the transition is retried on the next poll.
 
-`input.fields` is the extraction contract for Docker observations. The `output` block names the Telegram bot, `driver = "infrabot"` selects its delivery backend, and `output.fields` defines the projection rendered by that bot. Version 1 supports multiple Docker inputs and exactly one Telegram bot output.
+`input.fields` is the extraction boundary for Docker observations. Raw Docker fields not declared there cannot appear in an event. `output.fields` is the projection rendered by the named Telegram bot. Derived transition fields such as `kind`, `previous_status`, and `status` are produced by the agent.
+
+Version 1 supports multiple Docker inputs and exactly one Telegram bot output. Every event includes the output name, and infraBot rejects an event when that name does not match its configured Telegram bot.
 
 Docker inputs use restricted HTTP API addresses. Do not mount the raw Docker socket into the agent container: access must pass through a private, read-only Docker API proxy exposing only the endpoints required for container listing.
 
@@ -141,7 +145,7 @@ The three forms are intentionally distinct. `infra rm` only owns configuration l
 
 ## configuration ownership
 
-The standard `project` block belongs to infraCLI. Adapter or application blocks after it belong to the process consuming them:
+The standard `project` block belongs to infraCLI. Monitoring or application blocks after it belong to the process consuming them:
 
 ```text
 infra 1
@@ -207,7 +211,7 @@ project "market" {
 }
 ```
 
-The initial runtime model supports one service and Docker. Configuration parsing, CLI commands, runtime execution, and adapter extensions remain separated so additional services, inputs, outputs, and runtimes can evolve without changing lifecycle contracts.
+The initial runtime model supports one service and Docker. Configuration parsing, CLI commands, runtime execution, and application extensions remain separated so additional services, inputs, outputs, and runtimes can evolve without changing lifecycle contracts.
 
 ## development
 
