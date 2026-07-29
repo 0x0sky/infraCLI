@@ -4,7 +4,7 @@ mod config;
 mod runtime;
 
 use anyhow::{Context, Result};
-use auth::{authorize_telegram, TelegramAuthOptions};
+use auth::{TelegramAuthOptions, authorize_telegram};
 use clap::Parser;
 use cli::{AuthProvider, Cli, Command, ServiceAction, ServiceArgs};
 use config::{ConfigPath, ProjectConfig, Wizard};
