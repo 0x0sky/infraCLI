@@ -6,143 +6,30 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: infracli-ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   rust:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: agent/containerized-service-monitor
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Apply input field contract
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          path = Path("src/agent.rs")
-          text = path.read_text()
-
-          pattern = re.compile(
-              r'''(?P<prefix>        let observed = after\n            \.as_ref\(\)\n            \.or\(before\.as_ref\(\)\)\n            \.context\("transition has no state"\)\?;\n)(?P<call>        send_event\()'''
-          )
-          replacement = '''\g<prefix>        let input_fields = config
-              .inputs
-              .iter()
-              .find(|input| input.id == observed.input)
-              .map(|input| &input.fields)
-              .context("transition input is not configured")?;
-          \g<call>'''
-          text, count = pattern.subn(replacement, text, count=1)
-          if count != 1:
-              raise SystemExit("transition block not found")
-
-          marker = '''            after.as_ref(),
-                      observed,
-                  )?;'''
-          replacement = '''            after.as_ref(),
-                      input_fields,
-                  )?;'''
-          if marker not in text:
-              raise SystemExit("send_event call tail not found")
-          text = text.replace(marker, replacement, 1)
-
-          pattern = re.compile(
-              r'''(fn send_event\(.*?    after: Option<&ObservedContainer>,\n)    observed: &ObservedContainer,\n\) -> Result<\(\)> \{''',
-              re.S,
-          )
-          text, count = pattern.subn(
-              lambda match: match.group(1)
-              + '''    input_fields: &BTreeSet<String>,
-          ) -> Result<()> {''',
-              text,
-              count=1,
-          )
-          if count != 1:
-              raise SystemExit("send_event signature not found")
-
-          marker = ''') -> Result<()> {
-              let previous_status = before'''
-          replacement = ''') -> Result<()> {
-              let observed = after.or(before).context("transition has no state")?;
-              let previous_status = before'''
-          if marker not in text:
-              raise SystemExit("send_event body marker not found")
-          text = text.replace(marker, replacement, 1)
-
-          marker = '    let available = event_fields(kind, previous_status, current_status, observed);'
-          replacement = '''    let available = event_fields(
-              kind,
-              previous_status,
-              current_status,
-              observed,
-              input_fields,
-          );'''
-          if marker not in text:
-              raise SystemExit("event_fields call not found")
-          text = text.replace(marker, replacement, 1)
-
-          pattern = re.compile(r'''fn event_fields\(.*?\n\}\n\nfn health_from_status''', re.S)
-          replacement = '''fn event_fields(
-              kind: &str,
-              previous_status: &str,
-              current_status: &str,
-              observed: &ObservedContainer,
-              input_fields: &BTreeSet<String>,
-          ) -> BTreeMap<String, String> {
-              let mut fields = BTreeMap::from([
-                  ("kind".to_owned(), kind.to_owned()),
-                  ("input".to_owned(), observed.input.clone()),
-                  ("docker_address".to_owned(), observed.docker_address.clone()),
-                  ("container".to_owned(), observed.container.clone()),
-                  ("container_id".to_owned(), observed.container_id.clone()),
-                  ("project".to_owned(), observed.project.clone()),
-                  ("service".to_owned(), observed.service.clone()),
-                  ("image".to_owned(), observed.image.clone()),
-                  ("state".to_owned(), observed.state.clone()),
-                  ("health".to_owned(), observed.health.clone()),
-                  ("previous_status".to_owned(), previous_status.to_owned()),
-                  ("status".to_owned(), current_status.to_owned()),
-              ]);
-              fields.retain(|name, _| {
-                  matches!(name.as_str(), "kind" | "previous_status" | "status")
-                      || input_fields.contains(name)
-              });
-              fields
-          }
-
-          fn health_from_status'''
-          text, count = pattern.subn(replacement, text, count=1)
-          if count != 1:
-              raise SystemExit("event_fields function not found")
-
-          old = "fn assignment<'a>(line_number: usize, line: &'a str) -> Result<(&'a str, &'a str)> {"
-          new = "fn assignment(line_number: usize, line: &str) -> Result<(&str, &str)> {"
-          if old not in text:
-              raise SystemExit("assignment signature not found")
-          text = text.replace(old, new, 1)
-
-          path.write_text(text)
-          PY
-      - run: cargo fmt
-      - run: cargo generate-lockfile
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test --all-features
-      - name: Commit finalized agent
-        run: |
-          set -Eeuo pipefail
-          if [[ -z "$(git status --porcelain -- src Cargo.lock)" ]]; then
-            exit 0
-          fi
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src Cargo.lock
-          git commit -m "Finalize agent input contract"
-          git push origin HEAD:agent/containerized-service-monitor
+
+  agent-image:
+    needs: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f Dockerfile.agent -t infra-agent:ci .
